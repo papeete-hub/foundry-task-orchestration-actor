@@ -19,7 +19,7 @@ import sys
 from pathlib import Path
 
 from . import conformance
-from .config import CapabilityConfig, ConfigError, lint, version
+from .config import CapabilityConfig, ConfigError, component_url_env, lint, version
 from .instance import render_cards
 from .serve import DEFAULT_PORT, ServeError, serve
 from .settings import ENV, Settings, SettingsError
@@ -97,6 +97,11 @@ def _cmd_show(args: argparse.Namespace) -> int:
         print(f"      service url   {config.service_url(run_id, component)}")
         for secret in config.render_secrets(run_id, component):
             print(f"      secret        {secret.name}  ({', '.join(sorted(secret.string_data))})")
+    # Names only: a value is a template for an address, and for a stand-in it carries the
+    # stand-in's own throwaway credentials, which a derivation table has no reason to print.
+    test_env = [name for name, _ in config.render_test_env(run_id)]
+    print(f"    test job env         "
+          f"{', '.join([*(component_url_env(c) for c in config.components), *test_env])}")
     return 0
 
 

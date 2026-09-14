@@ -133,3 +133,11 @@ fields:
             data:
               type: object
               doc: string keys to string values, stored as `stringData`
+      test_env:
+        type: object
+        doc: >-
+          Environment variables set on the test Job beside each `<COMPONENT>_URL`: what a
+          black-box test reaches other than the components themselves. By convention `AMQP_URL`
+          is the broker a `via: event` dataset publishes to (ADR-FTA-0003, ADR-FTOA-0003). Keys are
+          UPPER_SNAKE_CASE and may not redefine a `<COMPONENT>_URL`; values are templates taking
+          `{run_id}` and `{capability}` only — the Job runs every component's tests at once.

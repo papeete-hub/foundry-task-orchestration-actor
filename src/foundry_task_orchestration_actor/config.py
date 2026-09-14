@@ -177,6 +177,7 @@ class CapabilityConfig:
     testing: Peer
     platform: str | None = None
     secrets: tuple[SecretTemplate, ...] = ()
+    test_env: tuple[tuple[str, str], ...] = ()
     root: Path | None = None
 
     # ── loading ─────────────────────────────────────────────────────────────────────────────
@@ -229,14 +230,14 @@ class CapabilityConfig:
             raise ConfigError(f"{source}: peers names unknown role(s) {unknown}; "
                               f"known: {', '.join(ROLES)}")
 
-        platform, secrets = _ephemeral(raw.get("ephemeral"), source)
+        platform, secrets, test_env = _ephemeral(raw.get("ephemeral"), source)
 
         # The peers' defaults are derived from the id and the owner, so build a bare config first
         # and let it derive them — one code path for "declared" and "not declared".
         bare = cls(capability=capability, source_repo=source_repo, components=components,
                    implementation=Peer("implementation", "", ""),
                    testing=Peer("testing", "", ""),
-                   platform=platform, secrets=secrets, root=root)
+                   platform=platform, secrets=secrets, test_env=test_env, root=root)
         # Force the derivations that can fail, here rather than at the first request that needs
         # one. A capability id with no `cap` segment is a typo, and it should not survive startup.
         _ = bare.capability_path, bare.actor_name
@@ -245,9 +246,10 @@ class CapabilityConfig:
             capability=capability, source_repo=source_repo, components=components,
             implementation=_peer(bare, "implementation", peers.get("implementation"), source),
             testing=_peer(bare, "testing", peers.get("testing"), source),
-            platform=platform, secrets=secrets, root=root,
+            platform=platform, secrets=secrets, test_env=test_env, root=root,
         )
         config._check_secrets(source)
+        config._check_test_env(source)
         if root is not None and platform is not None:
             overlay = config.platform_folder / "k8s" / "overlays" / EPHEMERAL_RECIPE
             if not overlay.is_dir():
@@ -402,6 +404,28 @@ class CapabilityConfig:
             for t in self.secrets
         ]
 
+    def render_test_env(self, run_id: str) -> list[tuple[str, str]]:
+        """Every declared `ephemeral.test_env` variable, rendered for one run.
+
+        Set on the test Job beside each `<COMPONENT>_URL`. Its templates get `{run_id}` and
+        `{capability}` only: the Job runs every touched component's tests in one container, so a
+        per-component placeholder would have no single value to take."""
+        values = {"capability": self.capability, "run_id": run_id}
+        return [(name, render_template(value, values)) for name, value in self.test_env]
+
+    def _check_test_env(self, source: str) -> None:
+        try:
+            self.render_test_env(self.run_id("TASK-NNN"))
+        except ConfigError as e:
+            raise ConfigError(f"{source}: ephemeral.test_env: {e}") from e
+        reserved = {component_url_env(c) for c in self.components}
+        clash = sorted(reserved & {name for name, _ in self.test_env})
+        if clash:
+            raise ConfigError(
+                f"{source}: ephemeral.test_env redefines {clash}, which this actor already sets to "
+                f"each component's in-namespace address — a second value for the same variable "
+                f"would silently decide which one a test reads")
+
     def _template_values(self, run_id: str, component: str) -> dict[str, str]:
         return {
             "capability": self.capability,
@@ -480,13 +504,23 @@ def _peer(config: CapabilityConfig, role: str, raw: object, source: str) -> Peer
                 declared_repo="repo" in raw, declared_url="url" in raw)
 
 
-def _ephemeral(raw: object, source: str) -> tuple[str | None, tuple[SecretTemplate, ...]]:
+def component_url_env(component: str) -> str:
+    """`<COMPONENT>_URL` — the one dev↔test addressing convention in use today. An environment
+    variable name cannot carry a hyphen, so one becomes an underscore."""
+    return f"{component.upper().replace('-', '_')}_URL"
+
+
+_ENV_NAME = re.compile(r"^[A-Z_][A-Z0-9_]*$")
+
+
+def _ephemeral(raw: object, source: str) -> tuple[str | None, tuple[SecretTemplate, ...],
+                                                  tuple[tuple[str, str], ...]]:
     if raw is None:
-        return None, ()
+        return None, (), ()
     if not isinstance(raw, dict):
         raise ConfigError(f"{source}: `ephemeral` must be a mapping with optional platform, "
-                          f"secrets")
-    unknown = sorted(set(raw) - {"platform", "secrets"})
+                          f"secrets, test_env")
+    unknown = sorted(set(raw) - {"platform", "secrets", "test_env"})
     if unknown:
         raise ConfigError(f"{source}: ephemeral has unknown key(s) {unknown}")
 
@@ -508,7 +542,17 @@ def _ephemeral(raw: object, source: str) -> tuple[str | None, tuple[SecretTempla
                 isinstance(k, str) and isinstance(v, str) for k, v in data.items()):
             raise ConfigError(f"{where}: `data` must be a non-empty mapping of string to string")
         secrets.append(SecretTemplate(name=str(entry["name"]), data=tuple(data.items())))
-    return platform, tuple(secrets)
+
+    test_env = raw.get("test_env") or {}
+    if not isinstance(test_env, dict) or not all(
+            isinstance(k, str) and isinstance(v, str) for k, v in test_env.items()):
+        raise ConfigError(f"{source}: ephemeral.test_env must be a mapping of variable name to "
+                          f"string template")
+    for name in test_env:
+        if not _ENV_NAME.match(name):
+            raise ConfigError(f"{source}: ephemeral.test_env name '{name}' is not an environment "
+                              f"variable name (UPPER_SNAKE_CASE)")
+    return platform, tuple(secrets), tuple(test_env.items())
 
 
 # ── the gate ────────────────────────────────────────────────────────────────────────────────

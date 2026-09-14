@@ -41,3 +41,7 @@ ephemeral:
     - name: "{workload}-db"
       data:
         dsn: "postgresql://widgets:widgets@{run_id}-platform-postgres:5432/widgets"
+  # Set on the test Job beside each <COMPONENT>_URL. AMQP_URL is where a test publishes the upstream
+  # events a `via: event` dataset names (ADR-FTA-0003, ADR-FTOA-0003).
+  test_env:
+    AMQP_URL: "amqp://widgets:widgets@{run_id}-platform-rabbitmq:5672/"

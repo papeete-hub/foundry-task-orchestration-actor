@@ -74,6 +74,9 @@ class Outcome:
     surface: list = field(default_factory=list)
     because: str | None = None
     fields: dict = field(default_factory=dict)
+    # The testing actor's own plan for each expectation's data (ADR-FTA-0003). Carried, never
+    # read: it goes back to that actor's `test-task` and to nobody else (ADR-FTOA-0003).
+    datasets: list = field(default_factory=list)
 
 
 def _task_fields(task: dict) -> dict:
@@ -94,7 +97,11 @@ def propose_payload(task: dict, components: list[str] | tuple[str, ...]) -> dict
 
 
 def assess_payload(task: dict, expectations: list) -> dict:
-    """`assess-task-cmd`: the task, and the tester's proposal as `acceptance_surface`."""
+    """`assess-task-cmd`: the task, and the tester's proposal as `acceptance_surface`.
+
+    The expectations only. The proposal's `datasets` are the testing actor's private plan for its
+    own tests (ADR-FTA-0003): anything in them the implementer must deliver has already been
+    proposed as an expectation, so there is nothing left in them for the implementer to read."""
     payload = _task_fields(task)
     payload["acceptance_surface"] = expectations
     return payload
@@ -216,4 +223,8 @@ def run(task: dict, components, *, propose: Callable[[dict], dict],
             fields=carried,
         )
 
-    return Outcome(True, surface=attach_commitments(expectations, commitments))
+    # `datasets` is the tester's, relayed to its own test door and never to the implementer —
+    # which is why it is taken off the proposal here and not handed to `assess` above.
+    datasets = proposal.get("datasets")
+    return Outcome(True, surface=attach_commitments(expectations, commitments),
+                   datasets=datasets if isinstance(datasets, list) else [])

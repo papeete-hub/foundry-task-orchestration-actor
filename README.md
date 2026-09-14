@@ -38,7 +38,7 @@ ephemeral:
 and, beside it, a Dockerfile of three lines:
 
 ```dockerfile
-FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.1.1
+FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.2.0
 COPY actor-agentic-context.yaml /actor/
 COPY platform-standin /actor/platform-standin
 RUN foundry-task-orchestration-actor render-cards /actor && foundry-task-orchestration-actor lint /actor
@@ -74,6 +74,7 @@ No `engines=`: the door names none. The mailbox and observability backend `serve
 | `peers.testing.url` | no | base URL of its doors | `http://foundry-<capability slug>-testing` |
 | `ephemeral.platform` | no | folder beside the sidecar with `k8s/overlays/ephemeral/` — stand-ins applied before any component | none |
 | `ephemeral.secrets[]` | no | `{name, data}` templates created for each touched component; `{run_id}`, `{component}`, `{workload}`, `{capability}` substituted | none |
+| `ephemeral.test_env` | no | variables set on the test Job beside each `<COMPONENT>_URL` — by convention `AMQP_URL` for `via: event` datasets; `{run_id}`, `{capability}` substituted | none |
 
 `IMPLEMENTATION_URL` / `TESTING_URL` in the environment override both the declared and the derived
 URL. A misspelt role or key under `peers:` is refused rather than silently falling back to the
@@ -96,14 +97,15 @@ Completions (closed; a reply matches exactly one):
   `stage` ∈ `round-0` | `implementation` | `testing` | `verdict`.
 
 ```
-round 0      testing.propose-acceptance      → expectations, open_questions
-             implementation.assess-task      → feasible, objections, commitments
+round 0      testing.propose-acceptance      → expectations, datasets (the tester's own), open_questions
+             implementation.assess-task      → feasible, objections, commitments   (expectations only)
              stop (stage round-0) on a transport error, open questions, no expectations,
              infeasible, or any objection — carrying what was said
 attempt n    implementation.implement-task   (acceptance_surface, remediation_context?)
-             testing.test-task               (acceptance_surface, touched components)
+             testing.test-task               (acceptance_surface, datasets, touched components)
              clone impl/<task_id> read-only → namespace test-<task_id> → pull Secret →
-             platform stand-in → Secrets + each touched component → a test Job per test image →
+             platform stand-in → Secrets + each touched component → a test Job per test image
+             (<COMPONENT>_URL + ephemeral.test_env) →
              teardown
              green → paired PRs, succeed      red → remediation context, next attempt
 exhausted    stop (stage verdict)

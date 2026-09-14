@@ -133,6 +133,7 @@ def make_orchestrate_task(config: CapabilityConfig, settings: Settings | None = 
             return _failed(outcome.because, stage=round0.STAGE, attempts=0, **outcome.fields)
         surface = outcome.surface
         correlation.event("round-0-agreed", expectations=len(surface),
+                          datasets=len(outcome.datasets),
                           ids=[e.get("id") for e in surface if isinstance(e, dict)])
 
         # ── the attempts ──────────────────────────────────────────────────────────────────
@@ -177,6 +178,10 @@ def make_orchestrate_task(config: CapabilityConfig, settings: Settings | None = 
             test_payload: dict = {"task_id": task_id, "title": title,
                                   "definition_of_done": definition_of_done,
                                   "components": components, "acceptance_surface": surface}
+            if outcome.datasets:
+                # Relayed unread, to the actor that wrote them and to nobody else: how each test
+                # builds its state, planned before the build (ADR-FTA-0003, ADR-FTOA-0003).
+                test_payload["datasets"] = outcome.datasets
             if context:
                 test_payload["context"] = context
             if remediation_context:

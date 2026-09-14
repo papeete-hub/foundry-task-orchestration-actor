@@ -44,7 +44,8 @@ import yaml
 from papeete_deploy import k8s
 
 from . import correlation
-from .config import COMPONENT_DEPLOY_FOLDER, EPHEMERAL_RECIPE, CapabilityConfig
+from .config import (COMPONENT_DEPLOY_FOLDER, EPHEMERAL_RECIPE, CapabilityConfig,
+                     component_url_env)
 from .kubeconfig import NAMESPACE_FILE
 from .settings import Settings
 
@@ -245,10 +246,8 @@ def deploy_component(config: CapabilityConfig, settings: Settings, run_id: str, 
 
 # ── the test Job ──────────────────────────────────────────────────────────────────────────────
 
-def component_url_env(component: str) -> str:
-    """`<COMPONENT>_URL` — the one dev↔test addressing convention in use today. An environment
-    variable name cannot carry a hyphen, so one becomes an underscore."""
-    return f"{component.upper().replace('-', '_')}_URL"
+# `component_url_env` — `<COMPONENT>_URL` — lives in config.py now, beside the sidecar check that
+# refuses a `test_env` entry redefining it; imported above, and still importable from here.
 
 
 def test_job_manifest(config: CapabilityConfig, settings: Settings, run_id: str, image: str,
@@ -264,8 +263,13 @@ def test_job_manifest(config: CapabilityConfig, settings: Settings, run_id: str,
                 "imagePullSecrets": [{"name": settings.pull_secret}],
                 "containers": [{
                     "name": "test", "image": image,
+                    # The component addresses, then whatever else the use declares its tests
+                    # reach — a broker for `via: event` datasets, by convention AMQP_URL
+                    # (ADR-FTA-0003 §6, ADR-FTOA-0003).
                     "env": [{"name": component_url_env(c), "value": config.service_url(run_id, c)}
-                            for c in components],
+                            for c in components]
+                           + [{"name": name, "value": value}
+                              for name, value in config.render_test_env(run_id)],
                 }],
             }},
         },

@@ -179,6 +179,29 @@ def test_a_platform_path_may_not_escape_the_sidecars_folder(sidecar_dict, write_
 def test_nothing_ephemeral_is_a_valid_declaration(config):
     assert config.platform is None and config.platform_folder is None
     assert config.render_secrets("r", "backend") == []
+    assert config.render_test_env("r") == []
+
+
+def test_test_env_renders_per_run(sidecar_dict, write_sidecar):
+    """What a test reaches besides the components — the broker an `event` dataset publishes to."""
+    sidecar_dict["ephemeral"] = {"test_env": {
+        "AMQP_URL": "amqp://guest:guest@{run_id}-platform-rabbitmq:5672/"}}
+    config = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    assert config.render_test_env("test-task-042") == [
+        ("AMQP_URL", "amqp://guest:guest@test-task-042-platform-rabbitmq:5672/")]
+
+
+@pytest.mark.parametrize("test_env, match", [
+    ({"AMQP_URL": "amqp://{workload}-mq"}, r"\{workload\}"),     # one Job, every component
+    ({"amqp_url": "amqp://mq"}, "UPPER_SNAKE_CASE"),
+    ({"BACKEND_URL": "http://elsewhere"}, "redefines"),
+    ({"AMQP_URL": 5672}, "string template"),
+])
+def test_a_test_env_that_cannot_mean_one_thing_is_refused(sidecar_dict, write_sidecar, test_env,
+                                                         match):
+    sidecar_dict["ephemeral"] = {"test_env": test_env}
+    with pytest.raises(ConfigError, match=match):
+        CapabilityConfig.load(write_sidecar(sidecar_dict))
 
 
 # ── settings ────────────────────────────────────────────────────────────────────────────────

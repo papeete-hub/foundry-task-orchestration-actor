@@ -135,6 +135,16 @@ def test_the_test_job_is_told_where_every_touched_component_is(config):
     assert manifest["spec"]["template"]["spec"]["imagePullSecrets"] == [{"name": "acr-pull"}]
 
 
+def test_the_test_job_also_gets_the_declared_test_env(sidecar_dict, write_sidecar):
+    sidecar_dict["ephemeral"] = {"test_env": {"AMQP_URL": "amqp://g:g@{run_id}-platform-mq:5672/"}}
+    config = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    manifest = deploy.test_job_manifest(config, SETTINGS, "test-task-042", "img", ["backend"])
+    assert manifest["spec"]["template"]["spec"]["containers"][0]["env"] == [
+        {"name": "BACKEND_URL", "value": "http://test-task-042-sup-007-wid-backend"},
+        {"name": "AMQP_URL", "value": "amqp://g:g@test-task-042-platform-mq:5672/"},
+    ]
+
+
 def test_no_platform_declared_means_no_platform_step(config, monkeypatch):
     recorder = Recorder(monkeypatch)
     _run(config)

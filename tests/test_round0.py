@@ -236,7 +236,11 @@ def test_c_the_agreed_surface_reaches_both_doors_on_every_attempt(fake_peers, or
                                                                   monkeypatch):
     commitment = {"expectation_id": "E1", "statement": "widget ids 0190-a1, 0190-a2, 0190-a3"}
     loose = "the backend answers on port 8000"
-    fake_peers.answers["propose-acceptance"] = {"expectations": EXPECTATIONS, "open_questions": []}
+    datasets = [{"expectation": "E1", "via": "seed", "because": "the seed is the subject",
+                 "provided_by": "E1"},
+                {"expectation": "E2", "via": "command", "steps": ["POST /widgets"]}]
+    fake_peers.answers["propose-acceptance"] = {"expectations": EXPECTATIONS, "datasets": datasets,
+                                                "open_questions": []}
     fake_peers.answers["assess-task"] = {"feasible": True, "commitments": [commitment, loose]}
     fake_peers.answers["implement-task"] = {"accepted": True, "branch": "impl/TASK-042",
                                             "images": [IMAGE]}
@@ -285,6 +289,13 @@ def test_c_the_agreed_surface_reaches_both_doors_on_every_attempt(fake_peers, or
         assert implemented[attempt]["acceptance_surface"] == agreed
         assert tested[attempt]["acceptance_surface"] == agreed
         assert tested[attempt]["components"] == ["backend"]
+    # The datasets are the tester's own: relayed to its test door on every attempt, and never
+    # shown to the implementer at either of its doors (ADR-FTA-0003, ADR-FTOA-0003).
+    for attempt in (0, 1):
+        assert tested[attempt]["datasets"] == datasets
+        assert "datasets" not in implemented[attempt]
+    assert "datasets" not in fake_peers.payloads("assess-task")[0]
+    assert "datasets" not in reply
     assert "remediation_context" not in implemented[0]
     assert implemented[1]["remediation_context"] == "❌ tests/test_widgets.py::test_e1 FAILED"
     assert tested[1]["remediation_context"] == implemented[1]["remediation_context"]
