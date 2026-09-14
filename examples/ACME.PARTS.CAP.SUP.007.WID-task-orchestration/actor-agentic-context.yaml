@@ -1,0 +1,43 @@
+# THE BINDING. This file is everything that ties the generic task-orchestration actor to one
+# capability. There is no subclass, no fork, and no code — a second capability instantiates the
+# same actor by writing its own copy of this file (and, if its components need one, a platform
+# stand-in folder beside it).
+#
+# Read it in four parts:
+#   capability / source_repo  the only two identifiers anyone writes. The registry path, the k8s
+#                             workload names, the image names and both peers' defaults are DERIVED
+#                             from them. Run `foundry-task-orchestration-actor show .` to see all
+#                             of it before a single peer session is spent.
+#   components                what the capability is made of, by name. Round 0 tells the testing
+#                             actor these before anything is built; an attempt deploys only the
+#                             ones implement-task reports touching.
+#   peers                     optional. Omitted here on purpose: both peers live where the
+#                             convention says (<owner>/<capability>-implementation|-testing, at
+#                             http://foundry-<capability slug>-implementation|-testing). The Pod's
+#                             IMPLEMENTATION_URL / TESTING_URL still win when set.
+#   ephemeral                 optional. What a touched component needs beside it in an attempt's
+#                             test-<task_id> namespace: a platform stand-in this folder ships, and
+#                             the Secrets each component's own manifest references.
+#
+# ACME.PARTS.CAP.SUP.007.WID is fictional. Everything else is exactly what a real sidecar looks
+# like; CI and the release workflow run their gates against this very folder. See ../README.md.
+context: foundry-task-orchestration-actor/agentic-context/v1
+capability: ACME.PARTS.CAP.SUP.007.WID
+source_repo: acme-lab/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
+
+components: [backend, stub]
+
+ephemeral:
+  # A kustomize folder with k8s/overlays/ephemeral/, relative to this file. Applied before any
+  # component; every Deployment it renders is waited on until ready.
+  platform: platform-standin
+  # Rendered for EACH touched component. `{workload}` is its k8s name (sup-007-wid-backend), and
+  # `{run_id}` the namespace — also the prefix papeete-deploy puts on every object it renders, which
+  # is how the stand-in's Services are addressed.
+  secrets:
+    - name: "{workload}-broker"
+      data:
+        amqp_url: "amqp://widgets:widgets@{run_id}-platform-rabbitmq:5672/"
+    - name: "{workload}-db"
+      data:
+        dsn: "postgresql://widgets:widgets@{run_id}-platform-postgres:5432/widgets"

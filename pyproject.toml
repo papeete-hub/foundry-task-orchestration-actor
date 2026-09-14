@@ -1,0 +1,56 @@
+[project]
+name = "foundry-task-orchestration-actor"
+version = "0.1.0"
+description = "Drives one capability's task through the three amigos round, implementation, an ephemeral black-box test run and a paired pull request — a papeete-actor for one use, with the capability supplied by a sidecar."
+readme = "README.md"
+requires-python = ">=3.11"
+authors = [{ name = "Papeete Consulting", email = "yoann.remy@outlook.com" }]
+license = "MIT"
+keywords = ["actor-model", "orchestration", "three-amigos", "capability", "papeete"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3.11",
+  "Topic :: Software Development :: Testing",
+]
+# Deliberately NOT here:
+#   `anthropic`, and any engine. This actor judges nothing — every decision it makes is a fixed rule
+#     (ADR-FTOA-0001), so it names no engine on its door and ships no `claude` CLI.
+#   `papeete-product`. The hand-written instance this was extracted from pinned it beside
+#     `papeete-deploy` and never imported it; `papeete-deploy` declares its own dependency on it,
+#     which is the only place that fact belongs.
+#   `opentelemetry-*`. `peers.py` propagates `traceparent` when the API is importable and is a
+#     no-op otherwise; the API arrives with the `serve` extra's observability backend.
+dependencies = [
+  "papeete-actor-synchronous-messaging>=0.2.1",
+  "papeete-deploy>=0.5.0",
+  "papeete-version>=0.1.0",
+  "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# HOW THIS ACTOR IS CARRIED, not what it is. ADR-PAM-0001 keeps wire out of the message contract,
+# and the same line keeps an HTTP server and an OTLP exporter out of the dependency set of a
+# consumer that only wants `CapabilityConfig`. `foundry-task-orchestration-actor serve` needs both,
+# and the image this package publishes installs exactly this extra.
+serve = [
+  "papeete-actor-synchronous-messaging-http>=0.4.0",
+  "papeete-observability>=0.1.0",
+]
+dev = ["pytest>=8.0"]
+
+[project.scripts]
+foundry-task-orchestration-actor = "foundry_task_orchestration_actor.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/papeete-hub/foundry-task-orchestration-actor"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/foundry_task_orchestration_actor"]

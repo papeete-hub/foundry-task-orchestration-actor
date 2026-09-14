@@ -1,0 +1,9 @@
+# The platform stand-in an ephemeral test namespace gets: one Postgres, one RabbitMQ. NOT the
+# platform — a per-attempt stand-in, thrown away with the namespace. The credentials are the ones
+# the sidecar's `ephemeral.secrets` hand each component, and nowhere else: nothing outside the
+# namespace can reach these Services.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - postgres.yaml
+  - rabbitmq.yaml

@@ -1,0 +1,10 @@
+# Deliberately non-conformant: `components` is missing entirely, and a peer is declared under a
+# misspelt role that would otherwise be silently ignored. CI lints this and asserts the gate FAILS —
+# a gate that cannot fail is not a gate, and a wheel whose lint silently passes everything would be
+# worse than no lint at all.
+context: foundry-task-orchestration-actor/agentic-context/v1
+capability: ACME.PARTS.CAP.SUP.007.WID
+source_repo: acme-lab/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
+peers:
+  implementaton:
+    url: http://localhost:8080

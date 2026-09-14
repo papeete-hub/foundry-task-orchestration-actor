@@ -1,0 +1,91 @@
+# WHAT DATA EXISTS. `papeete-actor-data/v0`, owned by `papeete-actor-message` — a named, minimally
+# typed dictionary. Every field here belongs to the ACTOR, not to any capability: a task, the
+# surface two peers agreed on, and how far a run got. Nothing names a capability, a component or a
+# peer repository, because none of those are known until a sidecar supplies them.
+data: papeete-actor-data/v0
+items:
+  - name: task_id
+    type: string
+    description: the TASK-NNN card id to orchestrate (e.g. "TASK-011")
+  - name: title
+    type: string
+    description: the task's short title/summary, supplied by the caller — no card lookup is performed here
+  - name: context
+    type: string
+    description: free-text elaboration beyond the title — background, constraints, links; optional
+  - name: definition_of_done
+    type: list
+    description: >-
+      the acceptance criteria this task must satisfy, as the caller states them — forwarded
+      unchanged to every peer door, never re-derived or fetched
+  - name: accepted
+    type: boolean
+    description: >-
+      whether the task was agreed, implemented, tested passing, and its pull request opened
+  - name: because
+    type: string
+    description: >-
+      why the orchestration did not succeed, in prose — the stage says where, this says what
+  - name: stage
+    type: enum
+    values: [round-0, implementation, testing, verdict]
+    description: >-
+      where a run stopped. round-0: the testing and implementation actors did not agree on an
+      acceptance surface, or one of them did not answer — nothing was built. implementation:
+      implement-task could not be reached, refused, or reported nothing to test. testing:
+      test-task could not be reached, refused, published nothing to run, or the ephemeral
+      deployment and test run failed. verdict: the tests kept failing on every attempt, or passed
+      and the pull request could not be opened
+  - name: attempts
+    type: integer
+    description: >-
+      how many implement-task -> test-task cycles this run used; 0 when round 0 stopped it
+  - name: verdict
+    type: string
+    description: >-
+      a summary of the final test verdict — the passed/total count, or the failing criteria on a
+      failure
+  - name: pr_url
+    type: string
+    description: the URL of the pull request opened on the implementation repository, once testing passed
+  - name: test_pr_url
+    type: string
+    description: >-
+      the URL of the paired pull request opened on the testing repository — titled with the same
+      [task_id] tag as pr_url's so the two are reviewed and merged together; absent if only the
+      first could be opened
+  - name: branch
+    type: string
+    description: >-
+      the branch the implementation actor's implement-task pushed to (impl/TASK-NNN) — present
+      whenever an implement-task call was accepted, whether or not testing passed
+  - name: test_branch
+    type: string
+    description: >-
+      the branch the testing actor's test-task pushed to (test/TASK-NNN) — present whenever a
+      test-task call was accepted, whether or not testing passed
+  - name: acceptance_surface
+    type: list
+    description: >-
+      the observable expectations the increment must satisfy, each with a stable id, a statement
+      of what must hold, and the handle a black-box caller reaches it through — proposed by the
+      testing actor in round 0, before anything was built. Once agreed, each expectation carries
+      the implementation actor's commitments that name it under `commitments`, and a commitment
+      naming none is appended as an entry of its own. On a round-0 failure it is the proposal as
+      made
+  - name: open_questions
+    type: list
+    description: >-
+      what the testing actor said the task does not determine — each a string, or an object with
+      `about` and `question`. Non-empty stops the run in round 0: it is for a human to answer, by
+      amending the task
+  - name: objections
+    type: list
+    description: >-
+      the implementation actor's objections to the proposed surface, one per expectation it cannot
+      meet, as its assess-task door returned them
+  - name: commitments
+    type: list
+    description: >-
+      what the implementation actor undertook to pin for the expectations it accepted, as its
+      assess-task door returned them — carried on a round-0 failure so nothing it offered is lost

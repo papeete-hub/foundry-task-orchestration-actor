@@ -1,0 +1,38 @@
+# THE DOOR. `synchronous-messaging-doors/v1` — one action, and no engine on it.
+#
+# WHY NO ENGINE. Every decision behind this door is a fixed rule: stop on open questions or
+# objections, call the implementation and testing doors with the agreed surface, deploy, run, retry
+# on a red verdict up to a fixed number of attempts, open the PRs on a green one. There is nothing
+# to judge, so `Actor.receive()` calls the registered handler with `judged=None` and no sidecar of
+# this actor names an engine.
+#
+# WHY IT IS AN ACTION. It changes the world — namespaces are created and deleted, pull requests are
+# opened — and it is a promise to try, which is what an action is. It blocks for the whole run by
+# this pipeline's design: no callback door on any side, and escalation is this door's own refusal
+# with the objections, back to whoever called (ADR-FIA-0004 §5).
+manifest: synchronous-messaging-doors/v1
+actions:
+  - id: orchestrate-task
+    means: >-
+      the door for "drive TASK-NNN of the capability I serve, from agreement to pull request".
+      Send the task id, title, definition of done and, optionally, context — the caller supplies
+      everything, no task card is looked up here. First, round 0: I ask the testing actor's
+      propose-acceptance door what it intends to assert, naming the components my sidecar
+      declares; if it has open questions I stop, and the implementation actor is not asked. Then I
+      ask the implementation actor's assess-task door whether that surface can be delivered; if it
+      is not feasible, or it objects, I stop. Either way I hand back what they said, for a human to
+      resolve. Once they agree, I call implement-task and then test-task with the agreed
+      acceptance surface — on every attempt, not only the first — deploy the touched components
+      into an ephemeral test-<task_id> namespace, run the published test image against them, and
+      tear the namespace down. A passing verdict opens the paired pull requests on both
+      repositories and I stop. A failing verdict retries with the failing criteria as a
+      remediation context, up to a fixed number of attempts; no pull request is opened on a final
+      failure. I never merge, and I never write code or tests myself.
+    completion: >-
+      whether the task reached a passing verdict and had its pull requests opened (with the PR
+      urls, both branches, the attempts used, the verdict, and the agreed acceptance surface), or
+      did not — with why, the stage it stopped at, the attempts used, and whatever of the
+      branches, verdict and surface is known; when round 0 stopped it, also the open questions,
+      objections and commitments that did.
+    door_schema: orchestrate-task-cmd
+    completion_schema: [orchestration-succeeded-result, orchestration-failed-result]

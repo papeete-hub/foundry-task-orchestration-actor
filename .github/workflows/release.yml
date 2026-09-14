@@ -1,0 +1,212 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+
+  # A REGISTRY ADDED AFTER A TAG WAS ALREADY CUT. The image job below publishes to two registries,
+  # and the second one was not always there. Running this workflow by hand backfills the image for
+  # a version whose wheel is already on PyPI — without inventing a version number whose only
+  # content is "the last release missed a registry".
+  #
+  # THE TAG IS AN INPUT, NOT THE REF THIS RUNS FROM. GitHub takes the workflow FILE from the ref it
+  # is dispatched on, and the tag needing a backfill is by definition older than the workflow that
+  # can do it — dispatching on that tag would run the very file that lacks this trigger. So run it
+  # from the default branch and name the tag here; the checkout below takes the CONTENT from the
+  # tag, and the version gate still refuses a tag that disagrees with the `pyproject.toml` beside
+  # it.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to publish an image for, e.g. v0.1.0"
+        required: true
+
+# PyPI Trusted Publishing (OIDC) — no token is stored anywhere. The one-time setup is a pending
+# publisher on pypi.org naming this repo and this workflow; after the first release it becomes a
+# normal publisher. See README.
+permissions:
+  id-token: write   # PyPI Trusted Publishing
+  contents: read
+  packages: write   # the image, to this repo's own container registry
+
+jobs:
+  publish:
+    # ONLY ON A TAG PUSH. A manual run exists to backfill an IMAGE (see `on:` above), and PyPI
+    # refuses a version it already holds — so re-uploading is not merely redundant, it fails, and
+    # would take the image job down with it.
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    environment: pypi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: build
+        # No fetch step and no external token: the contract is committed here. A release depends
+        # on nothing but this checkout and PyPI.
+        run: uv build
+
+      - name: the wheel must carry its contract
+        run: |
+          uv venv /tmp/probe
+          uv pip install --python /tmp/probe/bin/python -q dist/*.whl
+          /tmp/probe/bin/foundry-task-orchestration-actor lint examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
+
+      - name: the wheel must carry the actor's own cards
+        # Same reason as the line above, for the other half of what this package ships. The
+        # `-actor` suffix asserts a papeete-actor underneath (ADR-ECO-0022); a wheel published
+        # without its cards makes the name a claim the artifact cannot honour, and a published
+        # version is not something to discover that from.
+        run: |
+          /tmp/probe/bin/papeete-actor-synchronous-messaging lint-card \
+            "$(/tmp/probe/bin/python -c 'from foundry_task_orchestration_actor import cards_path; print(cards_path())')"
+
+      - name: the gate must run
+        # BEFORE the upload, not after. A wheel whose lint silently passes everything, or that
+        # shipped without its schema, is not something to discover from a published version.
+        run: |
+          if /tmp/probe/bin/foundry-task-orchestration-actor lint tests/fixtures/broken; then
+            echo "::error::lint accepted a non-conformant sidecar — refusing to publish"
+            exit 1
+          fi
+
+      - name: publish to PyPI
+        run: uv publish --trusted-publishing always
+
+  # ── the image, from the same tag and the same checkout ────────────────────────────────────────
+  #
+  # TWO ARTIFACTS, ONE RELEASE (ADR-FIA-0005, ADR-FTOA-0001). A use pins an image; an embedder pins
+  # a wheel; both are this package at this version. A tag that produced one and not the other leaves a consumer
+  # unable to take the release at all — so this job builds the wheel again from the same checkout
+  # rather than installing the one just uploaded: the image must not depend on PyPI having already
+  # indexed it, and must not be able to pick up a different build of the same version.
+  #
+  # It runs AFTER the wheel is published, not beside it. A failed upload should not leave an image
+  # published for a version that does not exist on PyPI; the reverse — a wheel with the image still
+  # to come — is recoverable by re-running this job alone.
+  image:
+    needs: publish
+    # `needs` still orders this after the wheel on a tag push. On a manual backfill `publish` is
+    # skipped, and a skipped dependency skips its dependents too unless `always()` says otherwise —
+    # so the condition has to name both cases rather than relying on `needs` alone.
+    if: always() && (needs.publish.result == 'success' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Empty on a tag push, which is `checkout`'s own default — the ref that triggered the
+          # run. On a manual backfill it is the tag being republished, so every step below reads
+          # that tag's own tree rather than whatever the default branch has moved on to.
+          ref: ${{ inputs.tag }}
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: the version is the tag
+        # The tag is what a consumer writes in a FROM line. A tag that disagrees with
+        # pyproject.toml would publish an image whose own `version()` contradicts its name, which
+        # is exactly the confusion the CI gate above exists to prevent for the wheel. On a backfill
+        # this compares the named tag against the `pyproject.toml` checked out FROM that tag, so a
+        # typo in the input is refused rather than published under the wrong name.
+        id: version
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          tag="${TAG#v}"
+          declared="$(uv run --quiet python -c             'import tomllib,pathlib; print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')"
+          [ "$tag" = "$declared" ] || { echo "::error::tag $TAG does not match pyproject version $declared"; exit 1; }
+          echo "version=$tag" >> "$GITHUB_OUTPUT"
+
+      - name: build
+        run: uv build
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: the image, tagged and latest
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          # `latest` FOLLOWS THE RELEASE STREAM, NOT A BACKFILL. A manual run exists to give an
+          # already-released version an image in a registry it missed; run against an older tag it
+          # would otherwise drag `latest` backwards onto it, silently, in whichever registry a
+          # consumer happens to pull from. The version tag is the whole point of a backfill —
+          # `latest` already names something newer, and stays there.
+          MOVE_LATEST: ${{ github.event_name == 'push' }}
+        run: |
+          image="ghcr.io/${{ github.repository }}"
+          docker build -f docker/Dockerfile -t "$image:$VERSION" -t "$image:latest" .
+          docker push "$image:$VERSION"
+          if [ "$MOVE_LATEST" = "true" ]; then docker push "$image:latest"; fi
+
+      # ── the product's own registry ────────────────────────────────────────────────────────────
+      #
+      # TWO REGISTRIES, ONE IMAGE. GHCR is where this package publishes; a product that RUNS uses
+      # of it pulls from its own registry, which its cluster already authenticates to and which a
+      # `FROM` line inside that cluster's builder can reach without a second credential. The base
+      # image has to exist in both, because the two are reached by different things: an embedder
+      # writing a Dockerfile reads the README and pins GHCR, while a use built by an in-cluster
+      # builder resolves its `FROM` against the registry that builder has a push token for.
+      #
+      # THE SAME IMAGE, NOT ANOTHER BUILD. `docker tag` re-points the build the step above already
+      # pushed, so both registries hold one digest. Building a second time would let them diverge —
+      # a base-image refresh between two steps of one job is enough — and nothing downstream would
+      # ever notice that `:0.1.0` meant two different things depending on where you pulled it.
+      #
+      # ONE VARIABLE NAMES THE WHOLE TARGET. `vars.PRODUCT_IMAGE` is the full repository path, e.g.
+      # `<name>.azurecr.io/<product>/foundry-task-orchestration-actor`; the login server is its first
+      # segment. This package is generic across capabilities and names no product of its own — the
+      # same rule `tests/test_portability.py` enforces over `src/` — so the product that hosts a
+      # registry names itself in a repository variable rather than in this file.
+      #
+      # UNSET IS A VALID STATE, AND IT SAYS SO. A fork, or this repo before its credentials were
+      # added, publishes to GHCR alone; that is a `::notice`, not a failure. Configured-but-broken
+      # IS a failure — the push below is not best-effort, because an image the product's cluster
+      # cannot pull is the whole reason this block exists.
+      - name: is a product registry configured?
+        id: product
+        env:
+          PRODUCT_IMAGE: ${{ vars.PRODUCT_IMAGE }}
+        run: |
+          if [ -z "$PRODUCT_IMAGE" ]; then
+            echo "::notice::PRODUCT_IMAGE is unset — publishing to GHCR only"
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          case "$PRODUCT_IMAGE" in
+            */*/*) : ;;
+            *) echo "::error::PRODUCT_IMAGE must be <registry>/<path>/<repository>, got $PRODUCT_IMAGE"; exit 1 ;;
+          esac
+          echo "server=${PRODUCT_IMAGE%%/*}" >> "$GITHUB_OUTPUT"
+          echo "configured=true" >> "$GITHUB_OUTPUT"
+
+      - uses: docker/login-action@v3
+        if: steps.product.outputs.configured == 'true'
+        with:
+          registry: ${{ steps.product.outputs.server }}
+          username: ${{ secrets.ACR_PUSH_USERNAME }}
+          password: ${{ secrets.ACR_PUSH_PASSWORD }}
+
+      - name: the same image, in the product's registry
+        if: steps.product.outputs.configured == 'true'
+        env:
+          PRODUCT_IMAGE: ${{ vars.PRODUCT_IMAGE }}
+          VERSION: ${{ steps.version.outputs.version }}
+          MOVE_LATEST: ${{ github.event_name == 'push' }}
+        run: |
+          ghcr="ghcr.io/${{ github.repository }}"
+          docker tag "$ghcr:$VERSION" "$PRODUCT_IMAGE:$VERSION"
+          docker push "$PRODUCT_IMAGE:$VERSION"
+          if [ "$MOVE_LATEST" = "true" ]; then
+            docker tag "$ghcr:latest" "$PRODUCT_IMAGE:latest"
+            docker push "$PRODUCT_IMAGE:latest"
+          fi
+
+      - name: a use built on it is still an actor
+        # BEFORE the image is something anyone can pin — the same reason the gates run before the
+        # upload above. An image that builds but produces a use that does not conform is
+        # not something to discover from a published tag.
+        run: |
+          docker build --build-arg ACTOR_IMAGE=ghcr.io/${{ github.repository }}:${{ steps.version.outputs.version }} \
+            -t use:release examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
+          docker run --rm use:release foundry-task-orchestration-actor lint /actor

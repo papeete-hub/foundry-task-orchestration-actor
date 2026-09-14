@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: platform-rabbitmq
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: platform-rabbitmq
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: platform-rabbitmq
+    spec:
+      containers:
+        - name: rabbitmq
+          image: rabbitmq:3.13-management-alpine
+          env:
+            - {name: RABBITMQ_DEFAULT_USER, value: widgets}
+            - {name: RABBITMQ_DEFAULT_PASS, value: widgets}
+          ports:
+            - containerPort: 5672
+          readinessProbe:
+            exec:
+              command: ["rabbitmq-diagnostics", "-q", "ping"]
+            initialDelaySeconds: 15
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: platform-rabbitmq
+spec:
+  selector:
+    app.kubernetes.io/name: platform-rabbitmq
+  ports:
+    - name: amqp
+      port: 5672
+      targetPort: 5672

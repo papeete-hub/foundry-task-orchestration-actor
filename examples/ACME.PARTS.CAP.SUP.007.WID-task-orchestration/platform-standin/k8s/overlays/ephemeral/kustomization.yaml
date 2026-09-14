@@ -1,0 +1,5 @@
+# The overlay papeete-deploy applies — `ephemeral` is the recipe name this actor asks for.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - ../../base

@@ -1,0 +1,22 @@
+# WHO. The actor this package defines — `papeete-actor-manifest/v0`, owned by `papeete-actor`.
+#
+# THIS FOLDER IS THE DEFINITION, NOT A USE. The four cards here say what a foundry task-orchestration
+# actor IS: the data it knows, the messages it exchanges, and the one door it answers. They name no
+# capability, because which capability an instance serves is not part of what the actor is — that
+# is `actor-agentic-context.yaml`, supplied per use.
+#
+# A use's cards are rendered from these at `docker build` time (`render-cards`): the three below
+# byte-for-byte, and this one with `name:` set to the use's own actor name and its description
+# extended with the capability and the two peers it drives.
+manifest: papeete-actor-manifest/v0
+name: foundry-task-orchestration-actor
+description: >-
+  Drives one TASK-NNN card for the business capability its sidecar names, from agreement to pull
+  request. First holds the three amigos round: asks the testing actor what it intends to assert,
+  asks the implementation actor whether that can be delivered, and stops with the open questions
+  or objections if they do not agree. Then calls implement-task and test-task with the agreed
+  acceptance surface, deploys the touched components into an ephemeral namespace, runs the
+  published test image against them, and retries with the failing criteria up to a fixed number
+  of attempts. Only on a passing verdict does it open the paired pull requests. Purely mechanical
+  coordination: it writes no code and no tests and merges nothing, so it names no engine — every
+  decision here is a fixed rule, not a session's judgement.

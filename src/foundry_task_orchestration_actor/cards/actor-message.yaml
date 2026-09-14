@@ -1,0 +1,32 @@
+# WHAT MESSAGES EXIST. `papeete-actor-message/v1`, owned by `papeete-actor-message` — named
+# messages, each a pure regrouping of references into the data dictionary, under an intent.
+# Wire-agnostic by that package's own design: WHAT a message is, never HOW it is carried.
+#
+# The two results are OUTCOMES of one door, so the binding closes both schemas: a field exclusive
+# to one (`pr_url`, `stage`) is what rules the other out. That is why `stage` is required on
+# failure and absent on success, rather than optional on both.
+message: papeete-actor-message/v1
+messages:
+  - name: orchestrate-task-cmd
+    intent: >-
+      ask this actor to drive a TASK-NNN card for the capability it serves through the three
+      amigos round, implementation, black-box testing and retries, to a pull request
+    references: [task_id, title, definition_of_done, context]
+    optional: [context]
+
+  - name: orchestration-succeeded-result
+    intent: >-
+      report that the task was agreed, implemented, tested passing against the agreed surface, and
+      that its paired pull requests were opened
+    references: [accepted, pr_url, test_pr_url, branch, test_branch, attempts, verdict,
+                 acceptance_surface]
+    optional: [test_pr_url]
+
+  - name: orchestration-failed-result
+    intent: >-
+      report where the task stopped and why, carrying whatever was known by then — including, when
+      round 0 stopped it, the questions or objections a human has to resolve
+    references: [accepted, because, stage, attempts, branch, test_branch, verdict,
+                 acceptance_surface, open_questions, objections, commitments]
+    optional: [branch, test_branch, verdict, acceptance_surface, open_questions, objections,
+               commitments]

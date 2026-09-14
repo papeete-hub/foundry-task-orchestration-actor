@@ -1,0 +1,124 @@
+name: ci
+on: [push, pull_request]
+
+# NO CREDENTIAL. Nothing here authenticates to anything: no peer actor, no cluster, no GitHub API,
+# no PyPI upload, no image push. Everything this pipeline asserts about THIS package, it asserts
+# from source and from artifacts it built itself — the wheel it just built, and an image built from
+# that wheel rather than from a published one.
+#
+# It does reach the network for inputs: public base images (python, the Kubernetes project's
+# kubectl image) and PyPI. That is fetching, not authenticating — no secret is available to this
+# workflow, so nothing it runs can reach a real capability's repositories or a real cluster.
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: the test suite
+        # Includes round 0 against real loopback HTTP peers; Kubernetes and GitHub are replaced.
+        run: uv run --extra dev pytest -q
+
+      - name: build
+        run: uv build
+
+      # ── the gates a contract-shipping package runs against its own artifact ─────────────────
+      #
+      # The suite above proves the code works in a source checkout. These prove the WHEEL works,
+      # which is a different claim and the one a consumer actually depends on. A schema left out
+      # of the build passes every test in tests/ and fails here.
+
+      - name: the wheel must carry its contract
+        run: |
+          uv venv /tmp/probe
+          uv pip install --python /tmp/probe/bin/python -q dist/*.whl
+          /tmp/probe/bin/foundry-task-orchestration-actor lint examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
+          /tmp/probe/bin/foundry-task-orchestration-actor show examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration \
+            --registry reg.example.com | tee /tmp/show.txt
+          grep -q 'reg.example.com/acme.parts/sup.007.wid/backend/tests:<version>' /tmp/show.txt
+          grep -q 'http://foundry-acme-parts-cap-sup-007-wid-implementation  (derived)' /tmp/show.txt
+
+      - name: the wheel must carry the actor's own cards
+        # The `-actor` suffix asserts a papeete-actor underneath, which lint-card can check
+        # (ADR-ECO-0022). The suite proves the cards are conformant in a source checkout; this
+        # proves they SHIPPED. `papeete-actor-synchronous-messaging` is a runtime dependency, so its
+        # gate is already in the probe venv.
+        run: |
+          /tmp/probe/bin/papeete-actor-synchronous-messaging lint-card \
+            "$(/tmp/probe/bin/python -c 'from foundry_task_orchestration_actor import cards_path; print(cards_path())')"
+
+      - name: the gate must run
+        # A gate that cannot fail is not a gate. Lint a deliberately non-conformant sidecar with
+        # the INSTALLED wheel and require a non-zero exit.
+        run: |
+          if /tmp/probe/bin/foundry-task-orchestration-actor lint tests/fixtures/broken; then
+            echo "::error::lint accepted a non-conformant sidecar — the gate is not running"
+            exit 1
+          fi
+          echo "the gate refused a non-conformant sidecar, as it should"
+
+  # ── the other half of what this package ships ─────────────────────────────────────────────────
+  #
+  # A use is a sidecar (and the platform stand-in it names), and the image is what turns one into a
+  # running actor. The job above proves the WHEEL works. This one proves that a folder holding
+  # nothing but those builds into an actor that boots and answers its door. Nothing here reaches a
+  # registry: the image is built, run and thrown away in the runner.
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+
+      - name: build the wheel this image will carry
+        run: uv build
+
+      - name: the base image
+        run: docker build -f docker/Dockerfile -t foundry-task-orchestration-actor:ci .
+
+      - name: the image and the wheel are one release
+        run: |
+          wheel="$(ls dist/*.whl | sed -E 's/.*-([0-9][^-]*)-py3.*/\1/')"
+          in_image="$(docker run --rm --entrypoint python foundry-task-orchestration-actor:ci \
+            -c 'from foundry_task_orchestration_actor import version; print(version())')"
+          echo "wheel=$wheel image=$in_image"
+          [ "$wheel" = "$in_image" ] || { echo "::error::image carries $in_image, wheel is $wheel"; exit 1; }
+
+      - name: the image carries the kubectl it pins
+        # papeete-deploy and deploy.py shell out to it on every attempt; an image without it builds,
+        # boots, answers /health, and fails the first task that gets past round 0.
+        run: docker run --rm --entrypoint kubectl foundry-task-orchestration-actor:ci version --client
+
+      - name: a use is a sidecar
+        # The example folder holds its sidecar, its platform stand-in and its Dockerfile — nothing
+        # else. If this builds, the claim in the README is true of a real folder rather than of prose.
+        run: |
+          test "$(ls examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration | sort | tr '\n' ' ')" = \
+            "Dockerfile actor-agentic-context.yaml platform-standin "
+          docker build --build-arg ACTOR_IMAGE=foundry-task-orchestration-actor:ci \
+            -t use:ci examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
+
+      - name: the rendered cards are what a caller is validated against
+        run: docker run --rm use:ci foundry-task-orchestration-actor lint /actor
+
+      - name: it boots, and answers the door its cards declare
+        # The credential is deliberately junk and no run is exercised: a 400 means routed and
+        # refused the payload, a 404 would mean the route was never built. Outside a cluster the
+        # kubeconfig bootstrap has nothing to write, and says so rather than failing the boot.
+        run: |
+          docker run -d --name smoke -p 18080:8080 -e GITHUB_TOKEN=ci use:ci
+          for _ in $(seq 1 30); do
+            curl -fsS -m 2 http://localhost:18080/health >/dev/null 2>&1 && break
+            sleep 1
+          done
+          curl -fsS -m 5 http://localhost:18080/health | grep -q ok
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -m 5 -X POST \
+            -H 'content-type: application/json' -d '{}' http://localhost:18080/orchestrate-task)"
+          [ "$code" = "400" ] || { echo "::error::POST /orchestrate-task answered $code, expected 400 (routed, bad payload)"; exit 1; }
+          code="$(curl -sS -o /dev/null -w '%{http_code}' -m 5 -X POST \
+            -H 'content-type: application/json' -d '{}' http://localhost:18080/no-such-door)"
+          [ "$code" = "404" ] || { echo "::error::an undeclared door answered $code, expected 404"; exit 1; }
+          docker logs smoke | grep -q actor-started
+          docker logs smoke | grep -q '"step": "kubeconfig"'
+          docker rm -f smoke

@@ -1,0 +1,135 @@
+# agentic-context.schema.yaml — the foundry-task-orchestration-actor/agentic-context contract.
+#
+# WHAT THIS FILE IS FOR. One capability's own declaration of what its orchestration actor needs to
+# know that cannot be derived: the components round 0 names to the tester, where its two peers live
+# when they do not live where the convention says, and what a component needs beside it in an
+# ephemeral test namespace. Every identifier this package needs is DERIVED from `capability` and
+# `source_repo` (see `config.py`), so a second capability instantiates the same actor by writing
+# this file and nothing else — plus the platform stand-in folder, if it declares one.
+#
+# THE CONTRACT IS COMMITTED SOURCE, NOT A FETCHED GATE. It lives inside the package, the same path
+# in a source checkout and in an installed wheel, so `foundry-task-orchestration-actor lint` needs
+# no network and no credential.
+#
+# ─── WHY THERE IS AN AGENTIC-CONTEXT FILE FOR AN ACTOR THAT JUDGES NOTHING ────────────────────
+# The name is the family's (`<package>/agentic-context/vN`, one per foundry-*-actor package), not a
+# claim that this actor runs an engine. It carries no `engine:` and no `ground_in:` for exactly
+# that reason: the sidecar declares only what this actor reads and acts on.
+#
+# ─── WHAT IS DELIBERATELY NOT HERE ────────────────────────────────────────────────────────────
+# Attempts, timeouts, the kube context, the image registry, the pull Secret's name, the PR base
+# branch. Those are facts about an ENVIRONMENT — the same capability deployed twice may want two
+# answers — and they are `Settings`, filled from the Pod's environment (see settings.py, and
+# FIA's ADR-FIA-0002/0004 for the same line drawn for that actor's sidecar).
+#
+# ─── WHY `components` IS A LIST OF NAMES, NOT OF {name, path, dockerfile} ─────────────────────
+# Round 0 happens before anything is built, so this actor cannot learn which components a task
+# touches from implement-task's completion — it has not been called yet. The tester still has to
+# be told what the capability is made of. The names are all this actor acts on: where a component
+# lives and how it is built are the implementation actor's facts, declared in ITS sidecar. The
+# attempt loop itself deploys only the components implement-task actually reports touching.
+
+contract: foundry-task-orchestration-actor/agentic-context/v1
+
+kind: agentic-context
+
+location: actor-agentic-context.yaml    # at the actor's folder root, beside actor.yaml
+
+required:
+  - context
+  - capability
+  - source_repo
+  - components
+
+fields:
+
+  context:
+    type: string
+    const: foundry-task-orchestration-actor/agentic-context/v1
+    doc: >-
+      The contract this file claims. A file declaring some other value is read, warned, and not
+      checked further — UNMIGRATED is not the same as non-conformant.
+
+  capability:
+    type: string
+    doc: >-
+      The capability id, in its canonical dotted form with the `CAP` segment present — e.g.
+      `<ENT>.<DOMAIN>.CAP.<TYPE>.<NNN>.<CODE>`. The registry path, the k8s workload prefix, the
+      image names and both peers' defaults are derived from it.
+
+  source_repo:
+    type: string
+    doc: >-
+      `<owner>/<repo>` of this orchestration actor's own repository. The actor's name is its repo
+      half; the owner is where both peers' repositories are looked for by default.
+
+  components:
+    type: array
+    doc: >-
+      The names of the capability's deployable components, as the implementation actor's own
+      sidecar names them. Sent to the testing actor's `propose-acceptance` in round 0. Each is a
+      lowercase DNS label: it becomes part of a Service name and of a `<COMPONENT>_URL` variable.
+    items:
+      type: string
+
+  peers:
+    type: object
+    doc: >-
+      Optional. Where the two actors this one drives live. Each role and each key is optional;
+      what is omitted is derived. The environment's `IMPLEMENTATION_URL` / `TESTING_URL` win over
+      both the declared and the derived url.
+    fields:
+      implementation:
+        type: object
+        fields:
+          repo:
+            type: string
+            doc: "`<owner>/<repo>`. Default: `<owner of source_repo>/<capability>-implementation`."
+          url:
+            type: string
+            doc: >-
+              Base URL its doors answer on. Default:
+              `http://foundry-<capability lowercased, dots to hyphens>-implementation`.
+      testing:
+        type: object
+        fields:
+          repo:
+            type: string
+            doc: "`<owner>/<repo>`. Default: `<owner of source_repo>/<capability>-testing`."
+          url:
+            type: string
+            doc: >-
+              Base URL its doors answer on. Default:
+              `http://foundry-<capability lowercased, dots to hyphens>-testing`.
+
+  ephemeral:
+    type: object
+    doc: >-
+      Optional. What a touched component needs beside it in an attempt's `test-<task_id>`
+      namespace. A capability whose components need nothing declares nothing.
+    fields:
+      platform:
+        type: string
+        doc: >-
+          A folder, relative to this sidecar, holding a kustomize layout with
+          `k8s/overlays/ephemeral/` — the stand-ins (a database, a broker) a component needs,
+          applied before any component and waited on until every Deployment it renders is ready.
+          It is the use's own folder because what it contains is the capability's fact; the use's
+          image COPYs it beside the sidecar.
+      secrets:
+        type: array
+        doc: >-
+          Secrets created in the namespace for EACH touched component, before that component is
+          applied, under a plain unprefixed name its base manifest can reference. `name` and every
+          `data` value are templates: `{run_id}` (the namespace, and the prefix every object
+          papeete-deploy renders carries), `{component}`, `{workload}` (the component's k8s name,
+          before the prefix) and `{capability}` are substituted literally; any other `{word}` is
+          refused as a typo.
+        items:
+          required: [name, data]
+          fields:
+            name:
+              type: string
+            data:
+              type: object
+              doc: string keys to string values, stored as `stringData`
