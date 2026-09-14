@@ -21,6 +21,11 @@ surface; and, for round 0, the open questions, objections and commitments that s
 whose value is unknown is OMITTED rather than sent as null — the door's completion schema types
 each one, and a null branch is not a string.
 
+WHO ELSE HEARS ABOUT A STOPPED ROUND. The caller always does — the refusal is the answer. When the
+caller also names `report_to`, a round stopped by open questions or objections is sent there too,
+as a GitHub issue labelled by task (`issues.py`, ADR-FTOA-0004), and the refusal carries its
+`issue_url`. Sent, never written into the backlog: this actor still never reads a task card.
+
 WHAT THIS DOES NOT DO. It never writes code or tests — those stay the implementation and testing
 actors' jobs, called over their own HTTP doors. It never merges the PRs it opens. It clones the
 implementation repository read-only, once per attempt, purely to read a touched component's own
@@ -42,7 +47,7 @@ from __future__ import annotations
 import logging
 import os
 
-from . import correlation, deploy, peers, pulls, round0
+from . import correlation, deploy, issues, peers, pulls, round0
 from .config import CapabilityConfig
 from .settings import Settings
 
@@ -79,6 +84,35 @@ def _failed(because: str, *, stage: str, attempts: int, **fields) -> dict:
                       **{k: v for k, v in carried.items() if k != "acceptance_surface"})
     return {"accepted": False, "because": because, "stage": stage, "attempts": attempts,
             **carried}
+
+
+def _report_round0(config: CapabilityConfig, report_to: str | None, task_id: str, fields: dict,
+                   token: str) -> str | None:
+    """Send a stopped round to the task's owner, when the caller named where (ADR-FTOA-0004).
+    Returns the issue's url, or None when nothing was sent.
+
+    ONLY WHAT A HUMAN CAN ANSWER. Open questions and objections are about the task, and amending the
+    task resolves them. A peer that did not answer, or a proposal with no expectations, carries
+    neither — those are for whoever operates the actors, and an issue on the backlog would ask the
+    task's owner to fix something they cannot.
+
+    NEVER AT THE COST OF THE ANSWER. The refusal is the result; the issue is a copy of it sent
+    elsewhere. Anything that goes wrong sending it — GitHub down, a token without Issues
+    permission, a malformed `report_to`, an answer missing `html_url` — is logged and dropped,
+    which is why this catches more than `PullRequestError`: the caller still gets its round-0
+    refusal, only without `issue_url`.
+    """
+    if not report_to or not (fields.get("open_questions") or fields.get("objections")):
+        return None
+    try:
+        url = issues.report_round0(config, report_to, task_id, fields,
+                                   correlation.current().get("correlation_id", ""), token)
+    except Exception as e:                                        # noqa: BLE001 — see docstring
+        correlation.event("issue-report-failed", level=logging.WARNING, repo=report_to,
+                          error=f"{type(e).__name__}: {e}")
+        return None
+    correlation.event("issue-reported", repo=report_to, url=url)
+    return url
 
 
 def _remediation_context(criteria: list[str], verdict: str) -> str:
@@ -130,7 +164,11 @@ def make_orchestrate_task(config: CapabilityConfig, settings: Settings | None = 
                                                  timeout=settings.assess_timeout_s),
             )
         if not outcome.agreed:
-            return _failed(outcome.because, stage=round0.STAGE, attempts=0, **outcome.fields)
+            carried = dict(outcome.fields)
+            issue_url = _report_round0(config, payload.get("report_to"), task_id, carried, token)
+            if issue_url:
+                carried["issue_url"] = issue_url
+            return _failed(outcome.because, stage=round0.STAGE, attempts=0, **carried)
         surface = outcome.surface
         correlation.event("round-0-agreed", expectations=len(surface),
                           datasets=len(outcome.datasets),

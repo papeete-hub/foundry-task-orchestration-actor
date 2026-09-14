@@ -16,6 +16,7 @@ and how the ecosystem's artifacts are named or placed (`ADR-ECO-*` in
 | [ADR-FTOA-0001](./ADR-FTOA-0001-the-machinery-leaves-the-capability.md) | The machinery leaves the capability — the orchestration kind gets the implementation kind's shape | Proposed |
 | [ADR-FTOA-0002](./ADR-FTOA-0002-round-zero.md) | Round zero — this actor's half of the three amigos round | Proposed |
 | [ADR-FTOA-0003](./ADR-FTOA-0003-datasets-travel-to-the-tester-only.md) | Datasets travel to the tester only — relayed unread, and the test Job is told what else it can reach | Proposed |
+| [ADR-FTOA-0004](./ADR-FTOA-0004-a-stopped-round-is-sent-to-the-tasks-owner.md) | A stopped round is sent to the task's owner — as an issue, never written into its backlog | Proposed |
 
 ## Authoring
 

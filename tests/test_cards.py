@@ -38,7 +38,8 @@ def test_one_action_no_query_no_engine():
 
 def test_the_request_is_the_contracts():
     schema = card.load(cards_path()).actions["orchestrate-task"].request_schema
-    assert set(schema["properties"]) == {"task_id", "title", "definition_of_done", "context"}
+    assert set(schema["properties"]) == {"task_id", "title", "definition_of_done", "context",
+                                         "report_to"}
     assert set(schema["required"]) == {"task_id", "title", "definition_of_done"}
 
 
@@ -51,7 +52,8 @@ def test_the_outcomes_are_the_contracts():
                                           "attempts", "verdict", "acceptance_surface"}
     assert set(failed["properties"]) == {"accepted", "because", "stage", "attempts", "branch",
                                          "test_branch", "verdict", "acceptance_surface",
-                                         "open_questions", "objections", "commitments"}
+                                         "open_questions", "objections", "commitments",
+                                         "issue_url"}
     assert set(failed["required"]) == {"accepted", "because", "stage", "attempts"}
     assert failed["properties"]["stage"]["enum"] == ["round-0", "implementation", "testing",
                                                      "verdict"]
@@ -70,6 +72,8 @@ PAYLOAD = {"task_id": "TASK-042", "title": "t", "definition_of_done": ["d"]}
      "attempts": 1, "verdict": "2/2 criteria passed", "acceptance_surface": [{"id": "E1"}]},
     {"accepted": False, "because": "b", "stage": "round-0", "attempts": 0,
      "acceptance_surface": [{"id": "E1"}], "open_questions": ["q"]},
+    {"accepted": False, "because": "b", "stage": "round-0", "attempts": 0,
+     "open_questions": ["q"], "issue_url": "https://github.example/o/r/issues/1"},
     {"accepted": False, "because": "b", "stage": "verdict", "attempts": 3,
      "branch": "impl/TASK-042", "test_branch": "test/TASK-042", "verdict": "❌ t FAILED"},
 ])

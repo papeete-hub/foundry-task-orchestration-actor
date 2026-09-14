@@ -21,7 +21,9 @@ actions:
       declares; if it has open questions I stop, and the implementation actor is not asked. Then I
       ask the implementation actor's assess-task door whether that surface can be delivered; if it
       is not feasible, or it objects, I stop. Either way I hand back what they said, for a human to
-      resolve. Once they agree, I call implement-task and then test-task with the agreed
+      resolve — and if you name report_to (owner/repo), open questions and objections are also
+      sent there as a GitHub issue labelled task:<capability>/<task_id>, or as a comment on the
+      one already open; I never read or edit the task's card. Once they agree, I call implement-task and then test-task with the agreed
       acceptance surface — on every attempt, not only the first — deploy the touched components
       into an ephemeral test-<task_id> namespace, run the published test image against them, and
       tear the namespace down. A passing verdict opens the paired pull requests on both
@@ -33,6 +35,7 @@ actions:
       urls, both branches, the attempts used, the verdict, and the agreed acceptance surface), or
       did not — with why, the stage it stopped at, the attempts used, and whatever of the
       branches, verdict and surface is known; when round 0 stopped it, also the open questions,
-      objections and commitments that did.
+      objections and commitments that did, and the issue_url they were sent to when report_to was
+      named.
     door_schema: orchestrate-task-cmd
     completion_schema: [orchestration-succeeded-result, orchestration-failed-result]

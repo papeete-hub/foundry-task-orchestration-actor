@@ -18,6 +18,13 @@ items:
     description: >-
       the acceptance criteria this task must satisfy, as the caller states them — forwarded
       unchanged to every peer door, never re-derived or fetched
+  - name: report_to
+    type: string
+    description: >-
+      the GitHub repository, as owner/repo, where the task's owner wants to hear that round 0
+      stopped on open questions or objections — sent there as an issue labelled
+      task:<capability>/<task_id>, or as a comment on the one already open for that task. The
+      task's card is never read or edited; optional, and nothing is sent without it
   - name: accepted
     type: boolean
     description: >-
@@ -89,3 +96,10 @@ items:
     description: >-
       what the implementation actor undertook to pin for the expectations it accepted, as its
       assess-task door returned them — carried on a round-0 failure so nothing it offered is lost
+  - name: issue_url
+    type: string
+    description: >-
+      the URL of the issue on report_to that carries this stopped round's open questions and
+      objections to the task's owner — the one opened, or the one already open that was commented
+      on. Absent when no report_to was named, when nothing a human can answer stopped the round,
+      or when the issue could not be sent

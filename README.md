@@ -38,7 +38,7 @@ ephemeral:
 and, beside it, a Dockerfile of three lines:
 
 ```dockerfile
-FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.2.0
+FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.3.0
 COPY actor-agentic-context.yaml /actor/
 COPY platform-standin /actor/platform-standin
 RUN foundry-task-orchestration-actor render-cards /actor && foundry-task-orchestration-actor lint /actor
@@ -86,21 +86,24 @@ default. What is **not** in the sidecar, on purpose, is operational tuning — s
 |---|---|---|---|
 | `orchestrate-task` | request | none | round 0, then up to N attempts, then the PRs |
 
-Request `orchestrate-task-cmd`: `task_id`, `title`, `definition_of_done`, optional `context`.
+Request `orchestrate-task-cmd`: `task_id`, `title`, `definition_of_done`, optional `context`,
+optional `report_to` (`owner/repo` where the task's owner hears about a stopped round).
 
 Completions (closed; a reply matches exactly one):
 
 - `orchestration-succeeded-result` — `accepted`, `pr_url`, `branch`, `test_branch`, `attempts`,
   `verdict`, `acceptance_surface`; optional `test_pr_url`.
 - `orchestration-failed-result` — `accepted`, `because`, `stage`, `attempts`; optional `branch`,
-  `test_branch`, `verdict`, `acceptance_surface`, `open_questions`, `objections`, `commitments`.
-  `stage` ∈ `round-0` | `implementation` | `testing` | `verdict`.
+  `test_branch`, `verdict`, `acceptance_surface`, `open_questions`, `objections`, `commitments`,
+  `issue_url`. `stage` ∈ `round-0` | `implementation` | `testing` | `verdict`.
 
 ```
 round 0      testing.propose-acceptance      → expectations, datasets (the tester's own), open_questions
              implementation.assess-task      → feasible, objections, commitments   (expectations only)
              stop (stage round-0) on a transport error, open questions, no expectations,
              infeasible, or any objection — carrying what was said
+             report_to? open questions / objections → issue labelled task:<capability>/<task_id>
+                        (or a comment on the one open) → issue_url
 attempt n    implementation.implement-task   (acceptance_surface, remediation_context?)
              testing.test-task               (acceptance_surface, datasets, touched components)
              clone impl/<task_id> read-only → namespace test-<task_id> → pull Secret →
@@ -115,6 +118,14 @@ The **agreed surface** is the tester's expectations, with each of the implemente
 names an expectation (`id`, `expectation` or `expectation_id`) attached under `commitments`, and
 every other commitment appended as `{id: commitment-<n>, statement, handle, commitment}`. It goes to
 both doors on every attempt and is rendered into the PR body. See ADR-FTOA-0002.
+
+A **stopped round is sent, not written**: with `report_to`, open questions and objections become an
+issue on that repository labelled `task:<capability>/<task_id>`, `needs-info` and
+`from:<actor name>` — a checklist of who raised what about which expectation — or a comment on the
+issue already open for the task. This actor never reads or edits the task's card; what the issue
+means for it is the owning repository's rule. A peer that did not answer is not reported, and a
+report that fails still returns the refusal. The token needs Issues: read and write there. See
+ADR-FTOA-0004.
 
 ## Every rendering, from two fields
 

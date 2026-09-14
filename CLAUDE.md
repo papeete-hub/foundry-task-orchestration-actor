@@ -44,6 +44,9 @@ Under `src/foundry_task_orchestration_actor/`:
   secret, platform stand-in, component secrets + components, test Jobs, best-effort teardown.
 - **`pulls.py`** — the paired PRs; body renders the agreed surface. Implementation PR required,
   the rest best-effort.
+- **`issues.py`** — a round stopped by open questions or objections, sent to the caller's
+  `report_to` as an issue labelled `task:<capability>/<task_id>` (or a comment on the open one).
+  Never reads or edits a task card; a failed report never costs the refusal (ADR-FTOA-0004).
 - **`handler.py`** — `make_orchestrate_task(config, settings)`: round 0, the attempt loop, the
   `stage` of every failure.
 - **`kubeconfig.py`** — in-cluster kubeconfig from the ServiceAccount (replaces `entrypoint.sh`).

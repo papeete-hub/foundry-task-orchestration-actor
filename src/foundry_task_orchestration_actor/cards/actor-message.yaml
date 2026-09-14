@@ -11,8 +11,8 @@ messages:
     intent: >-
       ask this actor to drive a TASK-NNN card for the capability it serves through the three
       amigos round, implementation, black-box testing and retries, to a pull request
-    references: [task_id, title, definition_of_done, context]
-    optional: [context]
+    references: [task_id, title, definition_of_done, context, report_to]
+    optional: [context, report_to]
 
   - name: orchestration-succeeded-result
     intent: >-
@@ -25,8 +25,9 @@ messages:
   - name: orchestration-failed-result
     intent: >-
       report where the task stopped and why, carrying whatever was known by then — including, when
-      round 0 stopped it, the questions or objections a human has to resolve
+      round 0 stopped it, the questions or objections a human has to resolve, and the issue they
+      were sent to
     references: [accepted, because, stage, attempts, branch, test_branch, verdict,
-                 acceptance_surface, open_questions, objections, commitments]
+                 acceptance_surface, open_questions, objections, commitments, issue_url]
     optional: [branch, test_branch, verdict, acceptance_surface, open_questions, objections,
-               commitments]
+               commitments, issue_url]

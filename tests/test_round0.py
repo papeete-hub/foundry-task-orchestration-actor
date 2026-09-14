@@ -4,14 +4,14 @@ The first half pins `round0.py` as the pure function it is. The second half boot
 its own cards, points it at `FakePeers`, and sends it `orchestrate-task` through `Actor.receive()`
 — so the request schema, the handler, the real `peers.call_door` and the closed completion
 schemas are all in the path. Only the Kubernetes run (`deploy.deploy_and_test`) and GitHub
-(`pulls.open_prs`) are replaced.
+(`pulls.open_prs`, and `pulls.github_request` under a stopped round's issue) are replaced.
 """
 from __future__ import annotations
 
 import pytest
 from papeete_actor_synchronous_messaging.actor import Actor
 
-from foundry_task_orchestration_actor import cards_path, deploy, pulls, round0
+from foundry_task_orchestration_actor import cards_path, correlation, deploy, pulls, round0
 from foundry_task_orchestration_actor.handler import make_orchestrate_task
 from foundry_task_orchestration_actor.peers import PeerError
 from foundry_task_orchestration_actor.settings import Settings
@@ -178,13 +178,14 @@ def orchestrate(config, monkeypatch):
     """An actor booted from its own cards, whose door drives the given peer URLs."""
     monkeypatch.setenv("GITHUB_TOKEN", "t")
 
-    def _boot(implementation_url: str, testing_url: str, **settings):
+    def _boot(implementation_url: str, testing_url: str, *, payload: dict | None = None,
+              **settings):
         handler = make_orchestrate_task(config, Settings(
             implementation_url=implementation_url, testing_url=testing_url,
             image_registry="reg.example.com", **settings))
         actor = Actor.from_card(cards_path(), actions={"orchestrate-task": handler})
         return lambda: actor.receive(verb="request", door="orchestrate-task",
-                                     from_="a-human", payload=dict(TASK))
+                                     from_="a-human", payload={**TASK, **(payload or {})})
     return _boot
 
 
@@ -379,3 +380,139 @@ def test_exhausted_attempts_are_the_verdict_stage(fake_peers, orchestrate, monke
     assert reply["verdict"] == "❌ t FAILED"
     assert fake_peers.doors().count("implement-task") == 2
     assert fake_peers.doors().count("propose-acceptance") == 1, "round 0 runs once per call"
+
+
+# ── a stopped round, sent to the task's owner (ADR-FTOA-0004) ───────────────────────────────
+
+REPORT_TO = {"report_to": "acme-lab/backlog"}
+TASK_LABEL = "task:ACME.PARTS.CAP.SUP.007.WID/TASK-042"
+
+
+class GitHub:
+    """`pulls.github_request` as the issues API — recording every call, never raising unless told.
+
+    Records rather than asserts: the handler deliberately swallows anything the report raises, so
+    an `AssertionError` thrown from in here would vanish into an `issue-report-failed` log line."""
+
+    def __init__(self, open_issues=(), fail=None):
+        self.calls: list[tuple[str, str, dict | None]] = []
+        self.open_issues, self.fail = list(open_issues), fail
+
+    def __call__(self, url, token, *, method, body=None):
+        self.calls.append((method, url, body))
+        if self.fail:
+            raise self.fail
+        if url.endswith("/labels"):
+            return {"name": body["name"]}
+        if method == "GET":
+            return self.open_issues
+        if url.endswith("/comments"):
+            return {"html_url": "https://github.example/acme-lab/backlog/issues/5#c1"}
+        return {"html_url": "https://github.example/acme-lab/backlog/issues/9", "number": 9}
+
+    def posted(self, suffix: str) -> list[dict]:
+        return [b for m, u, b in self.calls if m == "POST" and u.endswith(suffix)]
+
+
+@pytest.fixture
+def github(monkeypatch):
+    def _install(**kwargs) -> GitHub:
+        fake = GitHub(**kwargs)
+        monkeypatch.setattr(pulls, "github_request", fake)
+        return fake
+    return _install
+
+
+@pytest.fixture
+def events(monkeypatch):
+    seen = []
+    real = correlation.event
+    monkeypatch.setattr(correlation, "event",
+                        lambda name, **fields: (seen.append((name, fields)), real(name, **fields)))
+    return seen
+
+
+def test_e_open_questions_open_an_issue_for_the_task(fake_peers, orchestrate, no_cluster, github):
+    fake = github()
+    fake_peers.answers["propose-acceptance"] = {
+        "expectations": EXPECTATIONS,
+        "open_questions": [{"about": "E1", "question": "which three statuses?"}]}
+
+    reply = orchestrate(fake_peers.url, fake_peers.url, payload=REPORT_TO)()
+
+    assert reply["stage"] == "round-0"
+    assert reply["issue_url"] == "https://github.example/acme-lab/backlog/issues/9"
+    assert reply["open_questions"] == [{"about": "E1", "question": "which three statuses?"}]
+    assert "report_to" not in fake_peers.payloads("propose-acceptance")[0], \
+        "where the owner hears back is this actor's business, not the tester's"
+    [created] = fake.posted("/repos/acme-lab/backlog/issues")
+    assert created["labels"] == [TASK_LABEL, "needs-info",
+                                 "from:acme.parts.cap.sup.007.wid-task-orchestration"]
+    assert created["title"] == "[TASK-042] round 0 stopped: 1 open question(s), 0 objection(s)"
+    assert ("- [ ] **open question** — raised by testing (`ACME.PARTS.CAP.SUP.007.WID-testing`), "
+            "on `E1`: which three statuses?") in created["body"]
+    assert "- **E2** GET /widgets/{id} returns 200 for each" in created["body"]
+    assert "Correlation id: `" in created["body"]
+
+
+def test_f_objections_on_a_task_with_an_open_issue_are_a_comment(fake_peers, orchestrate,
+                                                                 no_cluster, github):
+    fake = github(open_issues=[{"number": 5,
+                                "html_url": "https://github.example/acme-lab/backlog/issues/5"}])
+    fake_peers.answers["propose-acceptance"] = {"expectations": EXPECTATIONS}
+    fake_peers.answers["assess-task"] = {"feasible": False, "objections": [
+        {"id": "E1", "kind": "not-determined", "why": "no ARCHIVE command exists"}]}
+
+    reply = orchestrate(fake_peers.url, fake_peers.url, payload=REPORT_TO)()
+
+    assert reply["issue_url"] == "https://github.example/acme-lab/backlog/issues/5"
+    assert not fake.posted("/repos/acme-lab/backlog/issues"), "one issue per task, not per stop"
+    [comment] = fake.posted("/issues/5/comments")
+    assert ("- [ ] **objection** — raised by implementation "
+            "(`ACME.PARTS.CAP.SUP.007.WID-implementation`), on `E1`: no ARCHIVE command exists"
+            ) in comment["body"]
+
+
+def test_g_without_report_to_nothing_is_sent(fake_peers, orchestrate, no_cluster, github):
+    fake = github()
+    fake_peers.answers["propose-acceptance"] = {"expectations": EXPECTATIONS,
+                                                "open_questions": ["which three statuses?"]}
+
+    reply = orchestrate(fake_peers.url, fake_peers.url)()
+
+    assert reply["stage"] == "round-0"
+    assert "issue_url" not in reply
+    assert fake.calls == []
+
+
+def test_h_a_github_failure_still_returns_the_refusal(fake_peers, orchestrate, no_cluster,
+                                                     github, events):
+    github(fail=pulls.PullRequestError("POST …/labels failed (403): not accessible", status=403))
+    fake_peers.answers["propose-acceptance"] = {"expectations": EXPECTATIONS,
+                                                "open_questions": ["which three statuses?"]}
+
+    reply = orchestrate(fake_peers.url, fake_peers.url, payload=REPORT_TO)()
+
+    assert reply["accepted"] is False
+    assert reply["stage"] == "round-0"
+    assert reply["open_questions"] == ["which three statuses?"]
+    assert "issue_url" not in reply
+    [(_, failed)] = [e for e in events if e[0] == "issue-report-failed"]
+    assert failed["repo"] == "acme-lab/backlog" and "403" in failed["error"]
+
+
+@pytest.mark.parametrize("which", ["propose", "assess"])
+def test_i_a_peer_that_did_not_answer_is_not_reported(which, closed_port_url, fake_peers,
+                                                      orchestrate, no_cluster, github):
+    """An operator's problem: amending the task card would not make a peer answer."""
+    fake = github()
+    fake_peers.answers["propose-acceptance"] = {"expectations": EXPECTATIONS}
+    if which == "propose":
+        reply = orchestrate(fake_peers.url, closed_port_url, payload=REPORT_TO)()
+    else:
+        reply = orchestrate(closed_port_url, fake_peers.url, payload=REPORT_TO)()
+
+    assert reply["stage"] == "round-0"
+    assert "did not answer" in reply["because"]
+    assert "issue_url" not in reply
+    assert fake.calls == []

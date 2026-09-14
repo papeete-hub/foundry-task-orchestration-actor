@@ -43,7 +43,15 @@ GITHUB_API = "https://api.github.com"
 
 
 class PullRequestError(RuntimeError):
-    """A GitHub API call this actor needed failed."""
+    """A GitHub API call this actor needed failed.
+
+    `status` is the HTTP status when GitHub answered at all, None when it could not be reached —
+    so a caller can tell "that label already exists" (422) from "the token may not do this" (403)
+    without matching on the message."""
+
+    def __init__(self, message: str, *, status: int | None = None):
+        super().__init__(message)
+        self.status = status
 
 
 def _headers(token: str) -> dict[str, str]:
@@ -55,15 +63,18 @@ def _headers(token: str) -> dict[str, str]:
     }
 
 
-def github_request(url: str, token: str, *, method: str, body: dict) -> dict:
-    request = urllib.request.Request(url, data=json.dumps(body).encode(), method=method,
-                                     headers=_headers(token))
+def github_request(url: str, token: str, *, method: str, body: dict | None = None) -> dict | list:
+    """One GitHub REST call, its JSON answer returned. `body=None` sends no body at all — a GET —
+    and a list endpoint answers a list, which is why the return type is not only `dict`."""
+    data = json.dumps(body).encode() if body is not None else None
+    request = urllib.request.Request(url, data=data, method=method, headers=_headers(token))
     try:
         with urllib.request.urlopen(request, timeout=30) as response:
             return json.loads(response.read())
     except urllib.error.HTTPError as e:
         raise PullRequestError(f"{method} {url} failed ({e.code}): "
-                               f"{e.read().decode(errors='replace')[:2000]}") from e
+                               f"{e.read().decode(errors='replace')[:2000]}",
+                               status=e.code) from e
     except urllib.error.URLError as e:
         raise PullRequestError(f"could not reach GitHub for {method} {url}: {e}") from e
 

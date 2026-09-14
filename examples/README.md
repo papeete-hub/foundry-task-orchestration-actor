@@ -85,8 +85,8 @@ Deployment and URL, each Secret, both image refs — before a single peer sessio
 To build it you need the base image; against one you built locally:
 
 ```bash
-uv build && docker build -f docker/Dockerfile -t foundry-task-orchestration-actor:0.2.0 .
-docker build --build-arg ACTOR_IMAGE=foundry-task-orchestration-actor:0.2.0 \
+uv build && docker build -f docker/Dockerfile -t foundry-task-orchestration-actor:0.3.0 .
+docker build --build-arg ACTOR_IMAGE=foundry-task-orchestration-actor:0.3.0 \
   -t acme-wid-orchestration examples/ACME.PARTS.CAP.SUP.007.WID-task-orchestration
 docker run --rm -p 8080:8080 acme-wid-orchestration
 curl localhost:8080/health
