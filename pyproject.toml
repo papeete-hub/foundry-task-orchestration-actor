@@ -1,6 +1,6 @@
 [project]
 name = "foundry-task-orchestration-actor"
-version = "0.1.0"
+version = "0.1.1"
 description = "Drives one capability's task through the three amigos round, implementation, an ephemeral black-box test run and a paired pull request — a papeete-actor for one use, with the capability supplied by a sidecar."
 readme = "README.md"
 requires-python = ">=3.11"

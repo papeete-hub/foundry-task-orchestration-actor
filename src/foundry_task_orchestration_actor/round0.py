@@ -37,10 +37,19 @@ THE RULES, AS THE CONTRACT FIXES THEM.
    `expectation_id` equals that expectation's `id`) is attached to it under `commitments`; every
    other commitment is appended as an expectation of its own, so nothing the implementation actor
    promised is dropped on the way to the tester.
+
+   A STRING THAT NAMES ITS EXPECTATIONS COUNTS TOO. The first live round came back with every
+   commitment as prose — `"E1: Add GET /capability …"`, `"E4/E5: GET /health is untouched …"` —
+   and 0.1.0 appended all five as `commitment-N`, beside the very expectations they were about.
+   The implementation actor's prompt now asks for `{id, commitment}` objects, but a session is
+   told, not bound, so a leading `<id>:` or `<id>/<id>:` prefix is read here as well. It attaches
+   only when EVERY id it names was proposed; `"BACKEND_URL / COMPONENT_PORT: …"` names none, and
+   stays an entry of its own rather than being guessed onto something.
 """
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Callable
 
@@ -50,6 +59,11 @@ STAGE = "round-0"
 
 # The keys by which a commitment may name the expectation it pins. Any one matching is enough.
 _NAMING_KEYS = ("id", "expectation", "expectation_id")
+
+# `E1: …`, `E4/E5: …`, `E2, E3: …` — one or more id-shaped tokens, then a colon. Id-shaped is
+# narrow on purpose (no spaces inside a token), so an ordinary sentence with a colon in it is not
+# mistaken for a list of ids; and it only ever attaches to ids that were actually proposed.
+_ID_PREFIX = re.compile(r"^\s*([A-Za-z0-9_.-]+(?:\s*[/,&]\s*[A-Za-z0-9_.-]+)*)\s*:\s*")
 
 
 @dataclass(frozen=True)
@@ -96,10 +110,25 @@ def _commitment_text(commitment) -> str:
     if isinstance(commitment, str):
         return commitment
     if isinstance(commitment, dict):
-        for key in ("statement", "text"):
+        for key in ("commitment", "statement", "text"):
             if isinstance(commitment.get(key), str):
                 return commitment[key]
     return json.dumps(commitment, sort_keys=True, ensure_ascii=False, default=str)
+
+
+def _named_by_prefix(text: str, by_id: dict) -> list:
+    """The proposed expectations a prose commitment names in its leading `<id>[/<id>…]:`, or none.
+
+    All or nothing: a prefix naming one proposed id and one unknown token is not attached to the
+    one it happens to share, because that reading is a guess.
+    """
+    match = _ID_PREFIX.match(text)
+    if not match:
+        return []
+    ids = [token.strip() for token in re.split(r"[/,&]", match.group(1))]
+    if not ids or any(i not in by_id for i in ids):
+        return []
+    return [by_id[i] for i in dict.fromkeys(ids)]
 
 
 def attach_commitments(expectations: list, commitments: list) -> list:
@@ -113,15 +142,18 @@ def attach_commitments(expectations: list, commitments: list) -> list:
 
     unattached = 0
     for commitment in commitments:
-        target = None
+        targets = []
         if isinstance(commitment, dict):
             for key in _NAMING_KEYS:
                 value = commitment.get(key)
                 if value is not None and str(value) in by_id:
-                    target = by_id[str(value)]
+                    targets = [by_id[str(value)]]
                     break
-        if target is not None:
-            target["commitments"] = [*_as_list(target.get("commitments")), commitment]
+        elif isinstance(commitment, str):
+            targets = _named_by_prefix(commitment, by_id)
+        if targets:
+            for target in targets:
+                target["commitments"] = [*_as_list(target.get("commitments")), commitment]
             continue
         unattached += 1
         surface.append({

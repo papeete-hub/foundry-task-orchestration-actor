@@ -94,7 +94,7 @@ unattached commitment becomes an entry of its own so the tester still sees it.
 ## Consequences
 
 - **Two extra door calls per task, each a read-only grounded session on a peer.** Their timeouts are
-  `PROPOSE_TIMEOUT_S` / `ASSESS_TIMEOUT_S` (900s by default), separate from the implement/test doors'.
+  `PROPOSE_TIMEOUT_S` / `ASSESS_TIMEOUT_S` (1200s / 900s by default), separate from the implement/test doors'.
 - **`attempts: 0`** is now a legal value, meaning round 0 stopped the run.
 - **Every use's cards change** (a new required `stage`, new optional fields). Rendering removes the
   hand copy; `conformance.check` catches a use that still carries one.

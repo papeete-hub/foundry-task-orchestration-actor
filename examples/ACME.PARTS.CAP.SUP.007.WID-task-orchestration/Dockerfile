@@ -12,8 +12,8 @@
 # The default names the product registry rather than GHCR, for the reason FIA's example gives: it
 # is the copy the in-cluster builder can pull (ADR-FIA-0006 publishes one digest to both). Override
 # it if you are somewhere else:
-#     docker build --build-arg ACTOR_IMAGE=ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.1.0 .
-ARG ACTOR_IMAGE=papeetefoundry.azurecr.io/foundry/foundry-task-orchestration-actor:0.1.0
+#     docker build --build-arg ACTOR_IMAGE=ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.1.1 .
+ARG ACTOR_IMAGE=papeetefoundry.azurecr.io/foundry/foundry-task-orchestration-actor:0.1.1
 FROM ${ACTOR_IMAGE}
 
 # THE BINDING, and the platform stand-in it names. `ephemeral.platform` is resolved against the

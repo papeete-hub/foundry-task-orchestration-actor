@@ -30,8 +30,10 @@ from .config import CapabilityConfig
 DEFAULT_DOOR_TIMEOUT_S = 2400
 
 # The round-0 doors are read-only sessions bounded well below the implementing ones (FIA's
-# assess-task defaults to 600s of session, plus clone and grounding on top).
-DEFAULT_PROPOSE_TIMEOUT_S = 900
+# assess-task defaults to 600s of session, plus clone and grounding on top). Propose is longer:
+# foundry-testing-actor 0.1.1 gives its session 900s, after two clones and grounding, and a
+# caller that gives up first turns a slow answer into "did not answer".
+DEFAULT_PROPOSE_TIMEOUT_S = 1200
 DEFAULT_ASSESS_TIMEOUT_S = 900
 
 # 600: two live end-to-end runs of the instance this was extracted from timed out waiting for a

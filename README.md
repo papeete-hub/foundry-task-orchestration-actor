@@ -38,7 +38,7 @@ ephemeral:
 and, beside it, a Dockerfile of three lines:
 
 ```dockerfile
-FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.1.0
+FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.1.1
 COPY actor-agentic-context.yaml /actor/
 COPY platform-standin /actor/platform-standin
 RUN foundry-task-orchestration-actor render-cards /actor && foundry-task-orchestration-actor lint /actor
@@ -142,7 +142,7 @@ Environment, read once at boot by `serve`; constructor keywords on `Settings` fo
 | `IMPLEMENTATION_URL` / `TESTING_URL` | sidecar, else derived | |
 | `MAX_ATTEMPTS` | `3` | |
 | `DOOR_CALL_TIMEOUT_S` | `2400` | implement-task, test-task |
-| `PROPOSE_TIMEOUT_S` / `ASSESS_TIMEOUT_S` | `900` | round 0 |
+| `PROPOSE_TIMEOUT_S` / `ASSESS_TIMEOUT_S` | `1200` / `900` | round 0 |
 | `DEPLOYMENT_READY_TIMEOUT_S` / `TEST_JOB_TIMEOUT_S` | `600` | |
 | `KUBE_CONTEXT` | `in-cluster` | the context `serve` writes from the ServiceAccount |
 | `IMAGE_PULL_SECRET` | `acr-pull` | copied from this Pod's namespace into each run's |

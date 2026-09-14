@@ -122,6 +122,36 @@ def test_a_commitment_naming_nothing_becomes_an_entry_of_its_own():
     assert '"what": "names an id nobody proposed"' in surface[4]["statement"]
 
 
+def test_a_prose_commitment_is_attached_by_the_ids_it_starts_with():
+    """What the first live round actually sent: strings, prefixed with the ids they concern."""
+    one = "E1: three widgets seeded with ids 0190…a1, 0190…a2, 0190…a3"
+    both = "E1/E2: nothing else changes"
+    surface = round0.attach_commitments(EXPECTATIONS, [one, both])
+    assert surface[0]["commitments"] == [one, both]
+    assert surface[1]["commitments"] == [both]
+    assert len(surface) == len(EXPECTATIONS)
+
+
+@pytest.mark.parametrize("text", [
+    "BACKEND_URL / COMPONENT_PORT: confirmed as committed fact",   # names no proposed id
+    "E1/E9: half of this names an id nobody proposed",             # all or nothing
+    "Note: the stub listens on 8000",                               # a sentence, not an id list
+    "the stub listens on 8000",
+])
+def test_a_prose_commitment_that_names_no_proposed_expectation_stays_its_own_entry(text):
+    surface = round0.attach_commitments(EXPECTATIONS, [text])
+    assert all("commitments" not in e for e in surface[:2])
+    assert surface[2]["id"] == "commitment-1" and surface[2]["commitment"] == text
+
+
+def test_the_shape_the_implementation_actor_is_now_asked_for_attaches_by_id():
+    commitment = {"id": "E2", "commitment": "GET /widgets/{id} is mounted at the root"}
+    surface = round0.attach_commitments(EXPECTATIONS, [commitment, {"id": None,
+                                                                    "commitment": "port 8000"}])
+    assert surface[1]["commitments"] == [commitment]
+    assert surface[2]["statement"] == "port 8000"
+
+
 def test_attaching_does_not_mutate_the_proposal():
     proposal = [dict(e) for e in EXPECTATIONS]
     round0.attach_commitments(proposal, [{"id": "E1"}])
