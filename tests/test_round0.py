@@ -9,7 +9,7 @@ schemas are all in the path. Only the Kubernetes run (`deploy.deploy_and_test`) 
 from __future__ import annotations
 
 import pytest
-from papeete_actor_synchronous_messaging.actor import Actor
+from papeete_actor_synchronous_messaging.actor import Actor, Refusal
 
 from foundry_task_orchestration_actor import cards_path, correlation, deploy, pulls, round0
 from foundry_task_orchestration_actor.handler import make_orchestrate_task
@@ -516,3 +516,11 @@ def test_i_a_peer_that_did_not_answer_is_not_reported(which, closed_port_url, fa
     assert "did not answer" in reply["because"]
     assert "issue_url" not in reply
     assert fake.calls == []
+
+
+def test_e_a_task_id_whose_namespace_cannot_be_named_is_refused_before_round_0(
+        fake_peers, orchestrate, no_cluster):
+    ask = orchestrate(fake_peers.url, fake_peers.url, payload={"task_id": "TASK-" + "X" * 60})
+    with pytest.raises(Refusal, match="at most 63"):
+        ask()
+    assert fake_peers.doors() == [], "no peer session may be paid for an unnameable attempt"

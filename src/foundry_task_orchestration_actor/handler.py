@@ -48,7 +48,7 @@ import logging
 import os
 
 from . import correlation, deploy, issues, peers, pulls, round0
-from .config import CapabilityConfig
+from .config import CapabilityConfig, ConfigError
 from .settings import Settings
 
 try:                                              # the same guard correlation.py keeps
@@ -135,6 +135,12 @@ def make_orchestrate_task(config: CapabilityConfig, settings: Settings | None = 
         title = payload["title"]
         definition_of_done = payload["definition_of_done"]
         context = payload.get("context")
+        try:
+            # Before round 0, not at deploy: two peer sessions would otherwise be paid for an
+            # attempt whose namespace can never be created.
+            config.check_task_id(task_id)
+        except ConfigError as e:
+            raise HandlerError(str(e)) from e
         run_id = config.run_id(task_id)
 
         # Bound before round 0 and never reset: `run_id` and `task_id` hold for the whole door

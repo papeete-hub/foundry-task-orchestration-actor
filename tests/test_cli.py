@@ -37,8 +37,8 @@ def test_show_prints_every_derived_rendering(config, tmp_path, capsys, monkeypat
     assert config.implementation.repo in out
     assert f"{config.testing.url}  (derived)" in out
     assert "reg.example.com/acme.parts/sup.007.wid/backend/tests:<version>" in out
-    assert "test-task-nnn-sup-007-wid-stub" in out
-    assert "http://test-task-nnn-sup-007-wid-backend" in out
+    assert "test-sup-007-wid-task-nnn-sup-007-wid-stub" in out
+    assert "http://test-sup-007-wid-task-nnn-sup-007-wid-backend" in out
 
 
 def test_show_says_where_a_peer_url_came_from(config, tmp_path, capsys, monkeypatch):

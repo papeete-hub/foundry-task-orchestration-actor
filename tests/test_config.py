@@ -25,9 +25,9 @@ def test_every_rendering_derives_from_two_fields(config):
         "reg.example.com/acme.parts/sup.007.wid/backend"
     assert config.clone_prefix("TASK-042") == \
         "acme-parts-cap-sup-007-wid-task-orchestration-TASK-042-"
-    assert config.run_id("TASK-042") == "test-task-042"
-    assert config.service_url("test-task-042", "backend") == \
-        "http://test-task-042-sup-007-wid-backend"
+    assert config.run_id("TASK-042") == "test-sup-007-wid-task-042"
+    assert config.service_url("test-sup-007-wid-task-042", "backend") == \
+        "http://test-sup-007-wid-task-042-sup-007-wid-backend"
 
 
 def test_parse_images_reads_the_three_way_contract_back_apart(config):
@@ -262,3 +262,26 @@ def test_each_required_key_is_required(sidecar_dict, write_sidecar, key):
     del sidecar_dict[key]
     assert not lint(write_sidecar(sidecar_dict)).ok
     # (`context` is required too, but a sidecar without one is UNMIGRATED — warned, not failed.)
+
+
+# ── one attempt's names ─────────────────────────────────────────────────────────────────────
+
+def test_the_same_task_id_in_two_capabilities_gets_two_namespaces(sidecar_dict, write_sidecar):
+    first = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    sidecar_dict["capability"] = "ACME.PARTS.CAP.BSP.001.SCO"
+    sidecar_dict["source_repo"] = "acme-lab/ACME.PARTS.CAP.BSP.001.SCO-task-orchestration"
+    second = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    assert first.run_id("TASK-003") != second.run_id("TASK-003")
+    assert second.run_id("TASK-003") == "test-bsp-001-sco-task-003"
+
+
+def test_a_task_id_too_long_to_name_its_objects_is_refused(config):
+    config.check_task_id("TASK-PAIR-VERIFY-007")
+    with pytest.raises(ConfigError, match="at most 63"):
+        config.check_task_id("TASK-" + "X" * 60)
+
+
+def test_a_capability_leaving_no_room_for_a_long_task_id_is_refused(sidecar_dict, write_sidecar):
+    sidecar_dict["components"] = ["a-component-name-long-enough-to-exhaust-the-budget"]
+    with pytest.raises(ConfigError, match="leave no room"):
+        CapabilityConfig.load(write_sidecar(sidecar_dict))

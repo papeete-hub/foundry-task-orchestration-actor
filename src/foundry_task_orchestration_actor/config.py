@@ -19,7 +19,7 @@ They are now derivations of two fields. Nothing in this package spells a capabil
     workload_name(c)      {tail, dots to hyphens}-{c}   a component's k8s object name
     image_name(c)         {capability lowercased}-{c}   the image its base manifest names
     image_repository(r,c) {r}/{capability_path}/{c}     where that image is pulled from
-    run_id(t)             test-{t lowercased}           one attempt's namespace AND product
+    run_id(t)             test-{tail slug}-{t lowercased}  one attempt's namespace AND product
     peer repo (role)      {owner}/{capability}-{role}
     peer url  (role)      http://foundry-{capability_slug}-{role}
 
@@ -83,6 +83,19 @@ _PLACEHOLDER = re.compile(r"\{([a-z_]+)\}")
 # so a secret template that cannot produce a valid name fails at startup rather than at the first
 # attempt, after two peer sessions have already been paid for.
 _K8S_NAME = re.compile(r"^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$")
+
+# A Service name is a DNS-1035 label: 63 characters at most. Every object one attempt creates is
+# named `{run_id}-{name}`, so the run id, the task id inside it and the longest name beside it share
+# one budget, and papeete-deploy does not shorten anything to fit.
+K8S_LABEL_MAX = 63
+
+# The shape of the longest task id a use must be able to take — the TASK-PAIR-VERIFY-NNN ids the
+# pairing checks run under. A sidecar whose names leave less room than this is refused at load,
+# rather than at the first live attempt that happens to carry a long id.
+_TASK_ID_FLOOR = "TASK-PAIR-VERIFY-NNN"
+
+# Names an attempt gives objects of its own, beside the components' workloads.
+_ATTEMPT_OBJECTS = ("test-job",)
 
 
 def version() -> str:
@@ -248,6 +261,7 @@ class CapabilityConfig:
             testing=_peer(bare, "testing", peers.get("testing"), source),
             platform=platform, secrets=secrets, test_env=test_env, root=root,
         )
+        config._check_name_budget(source)
         config._check_secrets(source)
         config._check_test_env(source)
         if root is not None and platform is not None:
@@ -368,16 +382,36 @@ class CapabilityConfig:
 
     # ── one attempt's ephemeral namespace ───────────────────────────────────────────────────
 
-    @staticmethod
-    def run_id(task_id: str) -> str:
+    def run_id(self, task_id: str) -> str:
         """Both the namespace name and the papeete-deploy product name for one attempt.
 
         One string, so every resource the run creates shares the exact `namePrefix` papeete-deploy's
         wrapper kustomization computes from it, and every resulting Service name is predictable
         without asking the cluster. Lowercased because a namespace is a DNS label; that is also
         all `papeete_version.normalize_name` does to a name without spaces.
+
+        IT CARRIES THE CAPABILITY. Task ids are numbered per capability, so TASK-003 exists in more
+        than one backlog; two orchestrators in one cluster running theirs at once would otherwise
+        share a namespace and tear each other's down. The tail slug (`workload_prefix`), not the
+        full id: `test-<full slug>-task-pair-verify-007-<workload>` is past the 63 characters a
+        Service name may have (ADR-FTOA-0005).
         """
-        return f"test-{task_id.strip().lower().replace(' ', '-')}"
+        return f"test-{self.workload_prefix}-{task_id.strip().lower().replace(' ', '-')}"
+
+    def longest_name(self, task_id: str) -> str:
+        """The longest object name one attempt at `task_id` would create."""
+        run_id = self.run_id(task_id)
+        names = [self.workload_name(c) for c in self.components] + list(_ATTEMPT_OBJECTS)
+        return max((self.prefixed(run_id, n) for n in names), key=len)
+
+    def check_task_id(self, task_id: str) -> None:
+        """Refuse a task id whose attempt could not be named within Kubernetes' limits."""
+        name = self.longest_name(task_id)
+        if len(name) > K8S_LABEL_MAX:
+            raise ConfigError(
+                f"task id '{task_id}' would name an object '{name}' ({len(name)} characters); a "
+                f"Service name may have at most {K8S_LABEL_MAX}"
+            )
 
     @staticmethod
     def prefixed(run_id: str, name: str) -> str:
@@ -433,6 +467,14 @@ class CapabilityConfig:
             "run_id": run_id,
             "workload": self.workload_name(component),
         }
+
+    def _check_name_budget(self, source: str) -> None:
+        try:
+            self.check_task_id(_TASK_ID_FLOOR)
+        except ConfigError as e:
+            raise ConfigError(
+                f"{source}: this capability's names leave no room for a task id as long as "
+                f"'{_TASK_ID_FLOOR}': {e}") from e
 
     def _check_secrets(self, source: str) -> None:
         sample_run = self.run_id("TASK-NNN")

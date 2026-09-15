@@ -47,7 +47,7 @@ class Recorder:
             if "get secret" in line:
                 return json.dumps({"data": {".dockerconfigjson": "e30="}})
             if "get deployments" in line:
-                return "test-task-042-platform-postgres"
+                return "test-sup-007-wid-task-042-platform-postgres"
             if args[-2:] == ("-o", "json") and "job/" in line:
                 return json.dumps({"status": {"conditions": [{"type": "Complete",
                                                               "status": "True"}]}})
@@ -90,20 +90,20 @@ def test_the_namespace_is_filled_in_order_and_torn_down(ephemeral_config, monkey
              for line in recorder.log if not line.startswith("  applied")]
     order = [
         "clone acme-lab/ACME.PARTS.CAP.SUP.007.WID-implementation@impl/TASK-042",
-        "k8s.ensure_namespace test-task-042",
+        "k8s.ensure_namespace test-sup-007-wid-task-042",
         "kubectl -n foundry-local",                       # read the pull secret
-        "kubectl -n test-task-042",                       # copy it in
-        "k8s.apply_product test-task-042 ",               # the platform stand-in
+        "kubectl -n test-sup-007-wid-task-042",                       # copy it in
+        "k8s.apply_product test-sup-007-wid-task-042 ",               # the platform stand-in
     ]
     for expected, actual in zip(order, steps):
         assert actual.startswith(expected.strip()), (expected, recorder.log)
     joined = "\n".join(recorder.log)
     assert joined.index("k8s.apply_product") < joined.index("sup-007-wid-backend-broker") \
-        < joined.index("k8s.apply test-task-042")
-    assert "rollout status deployment/test-task-042-platform-postgres" in joined
-    assert "rollout status deployment/test-task-042-sup-007-wid-backend" in joined
-    assert joined.index("logs job/test-task-042-test-job") < joined.index("k8s.delete ")
-    assert recorder.log[-1].startswith("k8s.delete_namespace test-task-042")
+        < joined.index("k8s.apply test-sup-007-wid-task-042")
+    assert "rollout status deployment/test-sup-007-wid-task-042-platform-postgres" in joined
+    assert "rollout status deployment/test-sup-007-wid-task-042-sup-007-wid-backend" in joined
+    assert joined.index("logs job/test-sup-007-wid-task-042-test-job") < joined.index("k8s.delete ")
+    assert recorder.log[-1].startswith("k8s.delete_namespace test-sup-007-wid-task-042")
 
 
 def test_a_failed_step_still_tears_down(ephemeral_config, monkeypatch):
