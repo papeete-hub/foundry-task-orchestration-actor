@@ -105,7 +105,7 @@ fields:
   ephemeral:
     type: object
     doc: >-
-      Optional. What a touched component needs beside it in an attempt's `test-<task_id>`
+      Optional. What a touched component needs beside it in an attempt's `test-<workload prefix>-<task_id>`
       namespace. A capability whose components need nothing declares nothing.
     fields:
       platform:

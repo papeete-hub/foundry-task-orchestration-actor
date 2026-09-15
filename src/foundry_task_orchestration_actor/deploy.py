@@ -3,7 +3,7 @@
 WHAT HAPPENS IN IT, IN ORDER.
 
     clone the implementation read-only, at the branch implement-task pushed
-    namespace test-<task_id> + the registry pull Secret copied in from this Pod's own namespace
+    namespace test-<workload prefix>-<task_id> + the registry pull Secret copied in from this Pod's own namespace
     the platform stand-in, if the sidecar declares one            (ephemeral.platform)
     for each touched component: its declared Secrets, then the component itself
     for each test image: a Job, its log read back and parsed
@@ -171,7 +171,7 @@ def own_namespace() -> str:
 def deploy_pull_secret(settings: Settings, run_id: str) -> None:
     """Create the namespace, then copy this Pod's own pull Secret into it.
 
-    A Secret is namespaced and has no cluster-wide form, so every `test-<task_id>` needs its own —
+    A Secret is namespaced and has no cluster-wide form, so every `test-<workload prefix>-<task_id>` needs its own —
     and copying means no second place to rotate: the credential still has exactly one origin.
     Runs before anything else touches the namespace precisely so no pod can start without it, which
     is why it cannot assume the namespace exists. `ensure_namespace()` is idempotent.

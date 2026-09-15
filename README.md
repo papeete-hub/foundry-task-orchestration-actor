@@ -38,7 +38,7 @@ ephemeral:
 and, beside it, a Dockerfile of three lines:
 
 ```dockerfile
-FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.3.0
+FROM ghcr.io/papeete-hub/foundry-task-orchestration-actor:0.4.0
 COPY actor-agentic-context.yaml /actor/
 COPY platform-standin /actor/platform-standin
 RUN foundry-task-orchestration-actor render-cards /actor && foundry-task-orchestration-actor lint /actor
@@ -106,7 +106,7 @@ round 0      testing.propose-acceptance      → expectations, datasets (the tes
                         (or a comment on the one open) → issue_url
 attempt n    implementation.implement-task   (acceptance_surface, remediation_context?)
              testing.test-task               (acceptance_surface, datasets, touched components)
-             clone impl/<task_id> read-only → namespace test-<task_id> → pull Secret →
+             clone impl/<task_id> read-only → namespace test-<workload prefix>-<task_id> → pull Secret →
              platform stand-in → Secrets + each touched component → a test Job per test image
              (<COMPONENT>_URL + ephemeral.test_env) →
              teardown
@@ -138,9 +138,9 @@ ADR-FTOA-0004.
 | component image | `<registry>/acme.parts/sup.007.wid/backend:<version>` |
 | test image | `<registry>/acme.parts/sup.007.wid/backend/tests:<version>` |
 | image name the base manifest carries | `acme.parts.cap.sup.007.wid-backend` |
-| namespace / papeete-deploy product | `test-task-042` |
-| component Deployment / Service | `test-task-042-sup-007-wid-backend` |
-| what the test Job gets | `BACKEND_URL=http://test-task-042-sup-007-wid-backend` |
+| namespace / papeete-deploy product | `test-sup-007-wid-task-042` |
+| component Deployment / Service | `test-sup-007-wid-task-042-sup-007-wid-backend` |
+| what the test Job gets | `BACKEND_URL=http://test-sup-007-wid-task-042-sup-007-wid-backend` |
 
 **The image ref is a three-way contract.** Both peers publish refs this actor parses back apart by
 path segment; nothing is re-derived or looked up.
