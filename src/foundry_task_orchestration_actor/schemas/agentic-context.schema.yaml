@@ -60,8 +60,10 @@ fields:
   source_repo:
     type: string
     doc: >-
-      `<owner>/<repo>` of this orchestration actor's own repository. The actor's name is its repo
-      half; the owner is where both peers' repositories are looked for by default.
+      `<owner>/<repo>` of this orchestration actor's own repository, and the owner both peers'
+      repositories are looked for under by default. Where it works, not who it is: the actor's
+      name is `<capability>-task-orchestration`, derived from `capability` and this package's
+      own role.
 
   components:
     type: array

@@ -12,7 +12,7 @@ They are now derivations of two fields. Nothing in this package spells a capabil
     capability   ACME.PARTS.CAP.SUP.007.WID                          ← the only id anyone writes
     source_repo  <owner>/ACME.PARTS.CAP.SUP.007.WID-task-orchestration  ← and the only repo
 
-    actor_name            <repo half of source_repo>
+    actor_name            {capability}-task-orchestration
     actor_slug            same, lowercased, dots to hyphens
     capability_slug       the id, lowercased, dots to hyphens
     capability_path       the id lowercased, split AT its `cap` segment: head / tail
@@ -22,6 +22,17 @@ They are now derivations of two fields. Nothing in this package spells a capabil
     run_id(t)             test-{tail slug}-{t lowercased}  one attempt's namespace AND product
     peer repo (role)      {owner}/{capability}-{role}
     peer url  (role)      http://foundry-{capability_slug}-{role}
+
+IDENTITY IS `capability` + ROLE, NOT THE REPO HALF. `actor_name` used to be whatever came after
+the `/` in `source_repo` — here and for the two peers alike — which reads as a derivation but is
+really an assumption: that one repository holds exactly one actor. Every sidecar in existence
+satisfies `source_repo == "<owner>/" + capability + "-" + ROLE`, so deriving the name from the two
+facts it was always shorthand for produces the identical string. It keeps producing the right one
+when a capability's three actors come to share a repository, where the repo half would name all
+three the same thing — and this actor is the one that would notice, because it puts both peers'
+names in the PR titles it opens (`pulls.py`). `source_repo` and `peers[].repo` are unchanged and
+still mean what they meant: where to clone from and push to, which is a different question from
+who is doing it.
 
 THE IMAGE REF IS A THREE-WAY CONTRACT. The implementation actor publishes
 `<registry>/<capability_path>/<component>:<version>`, the testing actor publishes
@@ -56,6 +67,11 @@ _CARDS_PATH = Path(__file__).resolve().parent / "cards"
 # because the path position already says it — every other token of the id survives, across
 # segments rather than concatenated.
 _CAPABILITY_SEGMENT = "cap"
+
+# The role THIS package plays for the capability it serves — not to be read as the singular of
+# `ROLES` just below, which is the two OTHER actors it drives. Half of this actor's identity; see
+# `CapabilityConfig.actor_name`.
+ROLE = "task-orchestration"
 
 # The two peers this actor drives. Their names are also the suffix each peer's repository carries
 # by convention, which is what lets both be derived rather than declared.
@@ -149,18 +165,21 @@ class ConfigError(ValueError):
 
 @dataclass(frozen=True)
 class Peer:
-    """One actor this one calls: where its repository is, and where its doors answer."""
+    """One actor this one calls: what it is called, where its repository is, and where its doors
+    answer.
+
+    `actor_name` is carried rather than read back out of `repo`, because those two answer
+    different questions and stop agreeing the day a capability's actors share a repository — at
+    which point the repo half would call both peers by the same name, in the PR titles this actor
+    opens. It is `{capability}-{role}`: exactly what that peer's own sidecar derives for itself.
+    """
 
     role: str
+    actor_name: str
     repo: str
     url: str
     declared_repo: bool = False
     declared_url: bool = False
-
-    @property
-    def actor_name(self) -> str:
-        """The repo half — the name that peer's own sidecar derives for itself."""
-        return self.repo.partition("/")[2]
 
 
 @dataclass(frozen=True)
@@ -248,11 +267,17 @@ class CapabilityConfig:
         # The peers' defaults are derived from the id and the owner, so build a bare config first
         # and let it derive them — one code path for "declared" and "not declared".
         bare = cls(capability=capability, source_repo=source_repo, components=components,
-                   implementation=Peer("implementation", "", ""),
-                   testing=Peer("testing", "", ""),
+                   implementation=Peer(role="implementation", actor_name="", repo="", url=""),
+                   testing=Peer(role="testing", actor_name="", repo="", url=""),
                    platform=platform, secrets=secrets, test_env=test_env, root=root)
         # Force the derivations that can fail, here rather than at the first request that needs
         # one. A capability id with no `cap` segment is a typo, and it should not survive startup.
+        owner, _, repo = source_repo.partition("/")
+        if not owner or not repo:
+            # `actor_name` used to be the repo half and validated this shape on the way past. It
+            # is derived from `capability` now, so the field the peers' owner and every clone URL
+            # are built from needs checking in its own right rather than by a side effect.
+            raise ConfigError(f"{source}: source_repo '{source_repo}' is not '<owner>/<repo>'")
         _ = bare.capability_path, bare.actor_name
 
         config = cls(
@@ -283,13 +308,13 @@ class CapabilityConfig:
 
     @property
     def actor_name(self) -> str:
-        """The repo half of `source_repo` — this actor's own name."""
-        owner, _, repo = self.source_repo.partition("/")
-        if not owner or not repo:
-            raise ConfigError(
-                f"source_repo '{self.source_repo}' is not '<owner>/<repo>'"
-            )
-        return repo
+        """`{capability}-{ROLE}` — this actor's own name.
+
+        Not the repo half of `source_repo`, which is the same string for every sidecar that
+        exists but stops being this actor's name alone the moment a capability's actors share a
+        repository. See this module's own docstring.
+        """
+        return f"{self.capability}-{ROLE}"
 
     @property
     def actor_slug(self) -> str:
@@ -542,7 +567,8 @@ def _peer(config: CapabilityConfig, role: str, raw: object, source: str) -> Peer
     url = raw.get("url") or f"http://{PEER_SERVICE_PREFIX}-{config.capability_slug}-{role}"
     if not str(url).startswith(("http://", "https://")):
         raise ConfigError(f"{source}: peers.{role}.url '{url}' must be an http(s) URL")
-    return Peer(role=role, repo=str(repo), url=str(url).rstrip("/"),
+    return Peer(role=role, actor_name=f"{config.capability}-{role}",
+                repo=str(repo), url=str(url).rstrip("/"),
                 declared_repo="repo" in raw, declared_url="url" in raw)
 
 

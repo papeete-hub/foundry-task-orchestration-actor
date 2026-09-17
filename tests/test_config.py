@@ -285,3 +285,54 @@ def test_a_capability_leaving_no_room_for_a_long_task_id_is_refused(sidecar_dict
     sidecar_dict["components"] = ["a-component-name-long-enough-to-exhaust-the-budget"]
     with pytest.raises(ConfigError, match="leave no room"):
         CapabilityConfig.load(write_sidecar(sidecar_dict))
+
+
+# ── identity: capability + role, not the repo half ──────────────────────────────────────────
+
+def test_the_actor_name_is_exactly_what_the_repo_half_used_to_be(config):
+    """The no-op half of the change, pinned — for this actor AND for both of its peers.
+
+    All three names were `repo.partition("/")[2]`. They are `{capability}-{role}` now. Every
+    sidecar that exists satisfies `repo == "<owner>/" + capability + "-" + role`, so the two
+    derivations agree on all of them — which is what makes this releasable on its own, ahead of
+    any repository moving.
+    """
+    assert config.source_repo == f"acme-lab/{config.capability}-task-orchestration"
+    assert config.actor_name == config.source_repo.partition("/")[2]
+    for peer in (config.implementation, config.testing):
+        assert peer.actor_name == peer.repo.partition("/")[2]
+
+
+def test_neither_this_actor_nor_its_peers_are_named_after_a_shared_repository(
+        sidecar_dict, write_sidecar):
+    """The point of the change, and this actor is where it would first be noticed.
+
+    In a consolidated capability repository all three actors share one repo name, so the repo
+    half would call all three `ACME.PARTS.CAP.SUP.007.WID`. This actor puts both peers' names in
+    the pull request titles it opens (`pulls.py`), which is where "implemented by …WID / tested
+    by …WID" would have shown up.
+    """
+    shared = "acme-lab/ACME.PARTS.CAP.SUP.007.WID"
+    sidecar_dict["source_repo"] = shared
+    sidecar_dict["peers"] = {"implementation": {"repo": shared}, "testing": {"repo": shared}}
+    config = CapabilityConfig.load(write_sidecar(sidecar_dict))
+
+    assert config.actor_name == "ACME.PARTS.CAP.SUP.007.WID-task-orchestration"
+    assert config.implementation.actor_name == "ACME.PARTS.CAP.SUP.007.WID-implementation"
+    assert config.testing.actor_name == "ACME.PARTS.CAP.SUP.007.WID-testing"
+    assert config.implementation.repo == config.testing.repo == shared
+    assert len({config.actor_name, config.implementation.actor_name,
+                config.testing.actor_name}) == 3
+
+
+def test_a_peer_name_is_its_role_even_when_its_repo_is_declared_elsewhere(sidecar_dict,
+                                                                          write_sidecar):
+    """A declared `repo` says where that peer's code lives, not what that peer is called.
+
+    The peer derives its own name from `capability` + its role, so this actor has to agree with
+    it rather than read a name back out of a repository it was handed.
+    """
+    sidecar_dict["peers"] = {"testing": {"repo": "elsewhere/widget-tests"}}
+    config = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    assert config.testing.repo == "elsewhere/widget-tests"
+    assert config.testing.actor_name == "ACME.PARTS.CAP.SUP.007.WID-testing"

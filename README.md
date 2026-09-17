@@ -66,7 +66,7 @@ No `engines=`: the door names none. The mailbox and observability backend `serve
 |---|---|---|---|
 | `context` | yes | the contract string | — |
 | `capability` | yes | `<ENT>.<DOMAIN>.CAP.<TYPE>.<NNN>.<CODE>` | — |
-| `source_repo` | yes | `<owner>/<repo>` of this actor's own repo; the repo half is its name | — |
+| `source_repo` | yes | `<owner>/<repo>` of this actor's own repo, and where both peers' are looked for | — |
 | `components` | yes | component names, as the implementation actor's sidecar names them; round 0 sends them to the tester | — |
 | `peers.implementation.repo` | no | where implementation is pushed and the PR is opened | `<owner>/<capability>-implementation` |
 | `peers.implementation.url` | no | base URL of its doors | `http://foundry-<capability lowercased, dots→hyphens>-implementation` |
