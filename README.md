@@ -107,8 +107,8 @@ round 0      testing.propose-acceptance      → expectations, datasets (the tes
 attempt n    implementation.implement-task   (acceptance_surface, remediation_context?)
              testing.test-task               (acceptance_surface, datasets, touched components)
              clone impl/<task_id> read-only → namespace test-<workload prefix>-<task_id> → pull Secret →
-             platform stand-in → Secrets + each touched component → a test Job per test image
-             (<COMPONENT>_URL + ephemeral.test_env) →
+             platform stand-in → Secrets + each touched component → a test Job per test image,
+             named for its component (every <COMPONENT>_URL + ephemeral.test_env) →
              teardown
              green → paired PRs, succeed      red → remediation context, next attempt
 exhausted    stop (stage verdict)
@@ -140,6 +140,7 @@ ADR-FTOA-0004.
 | image name the base manifest carries | `acme.parts.cap.sup.007.wid-backend` |
 | namespace / papeete-deploy product | `test-sup-007-wid-task-042` |
 | component Deployment / Service | `test-sup-007-wid-task-042-sup-007-wid-backend` |
+| test Job, one per component's test image | `test-sup-007-wid-task-042-test-backend` |
 | what the test Job gets | `BACKEND_URL=http://test-sup-007-wid-task-042-sup-007-wid-backend` |
 
 **The image ref is a three-way contract.** Both peers publish refs this actor parses back apart by

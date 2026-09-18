@@ -110,8 +110,14 @@ K8S_LABEL_MAX = 63
 # rather than at the first live attempt that happens to carry a long id.
 _TASK_ID_FLOOR = "TASK-PAIR-VERIFY-NNN"
 
-# Names an attempt gives objects of its own, beside the components' workloads.
-_ATTEMPT_OBJECTS = ("test-job",)
+# The test Job one component's test image runs in. Per component, because a Job's pod template
+# is immutable: one shared name, re-applied with the next component's image, is refused by the API
+# server — which is how every two-component attempt failed until 0.6.0 (ADR-FTOA-0006).
+_TEST_JOB = "test-{component}"
+
+# Names an attempt gives objects of its own, per component, beside that component's workload.
+# `longest_name` counts each of them for every component the sidecar declares.
+_ATTEMPT_OBJECTS = (_TEST_JOB,)
 
 
 def version() -> str:
@@ -426,7 +432,9 @@ class CapabilityConfig:
     def longest_name(self, task_id: str) -> str:
         """The longest object name one attempt at `task_id` would create."""
         run_id = self.run_id(task_id)
-        names = [self.workload_name(c) for c in self.components] + list(_ATTEMPT_OBJECTS)
+        names = [name for c in self.components
+                 for name in (self.workload_name(c),
+                              *(o.format(component=c) for o in _ATTEMPT_OBJECTS))]
         return max((self.prefixed(run_id, n) for n in names), key=len)
 
     def check_task_id(self, task_id: str) -> None:
@@ -437,6 +445,11 @@ class CapabilityConfig:
                 f"task id '{task_id}' would name an object '{name}' ({len(name)} characters); a "
                 f"Service name may have at most {K8S_LABEL_MAX}"
             )
+
+    @staticmethod
+    def test_job_name(component: str) -> str:
+        """The test Job for one component's test image, before the run's prefix."""
+        return _TEST_JOB.format(component=component)
 
     @staticmethod
     def prefixed(run_id: str, name: str) -> str:
@@ -466,9 +479,12 @@ class CapabilityConfig:
     def render_test_env(self, run_id: str) -> list[tuple[str, str]]:
         """Every declared `ephemeral.test_env` variable, rendered for one run.
 
-        Set on the test Job beside each `<COMPONENT>_URL`. Its templates get `{run_id}` and
-        `{capability}` only: the Job runs every touched component's tests in one container, so a
-        per-component placeholder would have no single value to take."""
+        Set on every test Job beside each `<COMPONENT>_URL`. Its templates get `{run_id}` and
+        `{capability}` only. Since 0.6.0 each Job runs ONE component's test image, so a
+        `{component}` value now exists here — and is deliberately not offered yet. Whether a test's
+        environment may differ by component belongs to the change that makes `<COMPONENT>_URL`
+        conditional (`depends_on`); a placeholder offered now would be inherited by that change
+        rather than decided by it (ADR-FTOA-0006)."""
         values = {"capability": self.capability, "run_id": run_id}
         return [(name, render_template(value, values)) for name, value in self.test_env]
 

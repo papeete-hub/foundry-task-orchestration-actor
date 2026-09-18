@@ -117,7 +117,7 @@ When the tester cannot tell what to assert, it answers early, and nothing is bui
 When it all holds:
 
 ```json
-{"accepted": true, "attempts": 2, "verdict": "4/4 criteria passed",
+{"accepted": true, "attempts": 2, "verdict": "4/4 criteria passed — backend 4/4",
  "branch": "impl/TASK-014", "test_branch": "test/TASK-014",
  "pr_url": "https://github.com/acme-lab/…-implementation/pull/12",
  "test_pr_url": "https://github.com/acme-lab/…-testing/pull/9",

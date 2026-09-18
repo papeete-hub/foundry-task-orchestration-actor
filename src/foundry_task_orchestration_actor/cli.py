@@ -95,6 +95,7 @@ def _cmd_show(args: argparse.Namespace) -> int:
         print(f"      test image    {config.image_repository(registry, component)}/tests:<version>")
         print(f"      deployment    {config.prefixed(run_id, config.workload_name(component))}")
         print(f"      service url   {config.service_url(run_id, component)}")
+        print(f"      test job      {config.prefixed(run_id, config.test_job_name(component))}")
         for secret in config.render_secrets(run_id, component):
             print(f"      secret        {secret.name}  ({', '.join(sorted(secret.string_data))})")
     # Names only: a value is a template for an address, and for a stand-in it carries the
