@@ -281,6 +281,29 @@ def test_a_task_id_too_long_to_name_its_objects_is_refused(config):
         config.check_task_id("TASK-" + "X" * 60)
 
 
+def test_the_per_component_test_job_leaves_the_name_budget_where_it_was(sidecar_dict,
+                                                                       write_sidecar):
+    """0.6.0 names a test Job `test-{component}`, per component, where it was one `test-job`.
+    `test-` is shorter than any workload prefix, so each Job name is shorter than its own
+    component's Deployment and the budget cannot move — pinned, on a two-component sidecar shaped
+    like the tightest one in use (an 11-character prefix, an 8-character component)."""
+    sidecar_dict["components"] = ["bff", "frontend"]
+    config = CapabilityConfig.load(write_sidecar(sidecar_dict))
+    task_id = "TASK-PAIR-VERIFY-007"
+    run_id = config.run_id(task_id)
+
+    for component in config.components:
+        job = config.prefixed(run_id, config.test_job_name(component))
+        assert len(job) < len(config.prefixed(run_id, config.workload_name(component)))
+    assert config.prefixed(run_id, config.test_job_name("frontend")) \
+        == "test-sup-007-wid-task-pair-verify-007-test-frontend"          # 51
+    before = max([config.prefixed(run_id, config.workload_name(c)) for c in config.components]
+                 + [config.prefixed(run_id, "test-job")], key=len)        # 0.5.0's computation
+    assert config.longest_name(task_id) == before \
+        == "test-sup-007-wid-task-pair-verify-007-sup-007-wid-frontend"   # 58
+    config.check_task_id(task_id)
+
+
 def test_a_capability_leaving_no_room_for_a_long_task_id_is_refused(sidecar_dict, write_sidecar):
     sidecar_dict["components"] = ["a-component-name-long-enough-to-exhaust-the-budget"]
     with pytest.raises(ConfigError, match="leave no room"):

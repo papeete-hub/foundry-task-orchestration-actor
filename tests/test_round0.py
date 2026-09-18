@@ -249,9 +249,10 @@ def test_c_the_agreed_surface_reaches_both_doors_on_every_attempt(fake_peers, or
                                        "images": [TEST_IMAGE]}
 
     runs = iter([
-        deploy.TestRun(passed=1, total=2, criteria=["❌ tests/test_widgets.py::test_e1 FAILED"],
-                       logs={"backend": "1 failed, 1 passed"}),
-        deploy.TestRun(passed=2, total=2, logs={"backend": "2 passed"}),
+        deploy.TestRun([deploy.ComponentRun(
+            "backend", passed=1, total=2, failed=["❌ tests/test_widgets.py::test_e1 FAILED"],
+            log="1 failed, 1 passed")]),
+        deploy.TestRun([deploy.ComponentRun("backend", passed=2, total=2, log="2 passed")]),
     ])
     deployed = []
 
@@ -277,7 +278,7 @@ def test_c_the_agreed_surface_reaches_both_doors_on_every_attempt(fake_peers, or
         {"id": "commitment-1", "statement": loose, "handle": None, "commitment": loose},
     ]
     assert reply == {"accepted": True, "branch": "impl/TASK-042", "test_branch": "test/TASK-042",
-                     "attempts": 2, "verdict": "2/2 criteria passed",
+                     "attempts": 2, "verdict": "2/2 criteria passed — backend 2/2",
                      "acceptance_surface": agreed,
                      "pr_url": "https://github.example/impl/pull/1",
                      "test_pr_url": "https://github.example/test/pull/1"}
@@ -298,7 +299,8 @@ def test_c_the_agreed_surface_reaches_both_doors_on_every_attempt(fake_peers, or
     assert "datasets" not in fake_peers.payloads("assess-task")[0]
     assert "datasets" not in reply
     assert "remediation_context" not in implemented[0]
-    assert implemented[1]["remediation_context"] == "❌ tests/test_widgets.py::test_e1 FAILED"
+    assert implemented[1]["remediation_context"] == \
+        "❌ [backend] tests/test_widgets.py::test_e1 FAILED"
     assert tested[1]["remediation_context"] == implemented[1]["remediation_context"]
 
     # Round 0 names the SIDECAR's components; the attempt names only what was touched.
@@ -370,14 +372,14 @@ def test_exhausted_attempts_are_the_verdict_stage(fake_peers, orchestrate, monke
     fake_peers.answers["test-task"] = {"accepted": True, "branch": "test/TASK-042",
                                        "images": [TEST_IMAGE]}
     monkeypatch.setattr(deploy, "deploy_and_test", lambda *a, **k: deploy.TestRun(
-        passed=0, total=1, criteria=["❌ t FAILED"]))
+        [deploy.ComponentRun("backend", passed=0, total=1, failed=["❌ t FAILED"])]))
     monkeypatch.setattr(pulls, "open_prs", lambda *a, **k: pytest.fail("no PR on a red verdict"))
 
     reply = orchestrate(fake_peers.url, fake_peers.url, max_attempts=2)()
 
     assert reply["stage"] == "verdict"
     assert reply["attempts"] == 2
-    assert reply["verdict"] == "❌ t FAILED"
+    assert reply["verdict"] == "❌ [backend] t FAILED"
     assert fake_peers.doors().count("implement-task") == 2
     assert fake_peers.doors().count("propose-acceptance") == 1, "round 0 runs once per call"
 

@@ -28,8 +28,10 @@ slug, a pairing check's id already overflows:
   tail of the capability id after its `CAP` segment, dots to hyphens (`bsp-001-sco`). It is the
   same token every component's workload name already starts with.
 - Loading a sidecar refuses a capability whose longest attempt object
-  (`{run_id}-{workload}` or `{run_id}-test-job`) would be over 63 characters for a task id as
-  long as `TASK-PAIR-VERIFY-NNN`.
+  (`{run_id}-{workload}` or `{run_id}-test-{component}`) would be over 63 characters for a task
+  id as long as `TASK-PAIR-VERIFY-NNN`. *(Amended by ADR-FTOA-0006: until 0.6.0 the second name
+  was one shared `{run_id}-test-job`. The per-component name is always shorter than that
+  component's own workload name, so the budget did not move.)*
 - `orchestrate-task` refuses a task id whose names would overflow. It does so as a refusal (HTTP
   400), before round 0, so no peer session is paid for an attempt that could never be created.
   The completion's `stage` enum is shared across three packages and gains no value.

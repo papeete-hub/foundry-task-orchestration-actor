@@ -6,7 +6,7 @@ WHAT HAPPENS IN IT, IN ORDER.
     namespace test-<workload prefix>-<task_id> + the registry pull Secret copied in from this Pod's own namespace
     the platform stand-in, if the sidecar declares one            (ephemeral.platform)
     for each touched component: its declared Secrets, then the component itself
-    for each test image: a Job, its log read back and parsed
+    for each test image: its own Job, named for its component; its log read back and parsed
     teardown — by label, by name, then the namespace itself
 
 NO DOCKER DAEMON, AND NO TAG IS EVER RE-DERIVED. Every image this module deploys comes straight
@@ -63,23 +63,70 @@ class DeployError(RuntimeError):
 
 
 @dataclass
-class TestRun:
-    """What one attempt's test Jobs reported, summed across every test image."""
+class ComponentRun:
+    """What one component's test Job reported."""
 
-    __test__ = False    # a name pytest would otherwise try to collect from any module importing it
-
+    component: str
     passed: int = 0
     total: int = 0
-    criteria: list[str] = field(default_factory=list)
-    logs: dict[str, str] = field(default_factory=dict)
+    failed: list[str] = field(default_factory=list)     # `❌ <nodeid>` lines, as parsed
+    log: str = ""
 
     @property
     def green(self) -> bool:
+        # A suite that collected nothing is not a pass: it proves nothing about its component.
         return self.total > 0 and self.passed == self.total
+
+
+@dataclass
+class TestRun:
+    """What one attempt's test Jobs reported — one `ComponentRun` per test image.
+
+    PER COMPONENT, THEN DERIVED. `passed`, `total`, `criteria` and `logs` are the sums and unions
+    the handler and the pull request bodies have always read; they are computed here so neither
+    needs to know a run has parts. What the parts change is `green` — every component must pass on
+    its own, so a component whose suite collected nothing fails the attempt instead of vanishing
+    into a sum — and `verdict`, which names each component's count (ADR-FTOA-0006).
+    """
+
+    __test__ = False    # a name pytest would otherwise try to collect from any module importing it
+
+    results: list[ComponentRun] = field(default_factory=list)
+
+    @property
+    def passed(self) -> int:
+        return sum(r.passed for r in self.results)
+
+    @property
+    def total(self) -> int:
+        return sum(r.total for r in self.results)
+
+    @property
+    def criteria(self) -> list[str]:
+        """Every failing criterion, tagged with the component whose Job reported it — so a red
+        two-component attempt says which half failed. Still led by `❌`, which is what
+        `handler._remediation_context` keys on."""
+        return [line.replace("❌ ", f"❌ [{r.component}] ", 1)
+                for r in self.results for line in r.failed]
+
+    @property
+    def logs(self) -> dict[str, str]:
+        return {r.component: r.log for r in self.results}
+
+    @property
+    def green(self) -> bool:
+        return bool(self.results) and all(r.green for r in self.results)
 
     @property
     def verdict(self) -> str:
-        return f"{self.passed}/{self.total} criteria passed"
+        """`8/8 criteria passed — bff 5/5, frontend 3/3`. A wire field — `orchestrate-task`'s
+        `verdict`, both pull requests' `## Verdict` — so the leading clause keeps the meaning it
+        has always had and the breakdown is only appended."""
+        summary = f"{self.passed}/{self.total} criteria passed"
+        if not self.results:
+            return summary
+        return summary + " — " + ", ".join(f"{r.component} {r.passed}/{r.total}"
+                                           for r in self.results)
 
 
 # ── kubectl, directly — for the pieces papeete_deploy.k8s doesn't already cover ─────────────
@@ -250,12 +297,19 @@ def deploy_component(config: CapabilityConfig, settings: Settings, run_id: str, 
 # refuses a `test_env` entry redefining it; imported above, and still importable from here.
 
 
-def test_job_manifest(config: CapabilityConfig, settings: Settings, run_id: str, image: str,
-                      components: list[str]) -> dict:
+def test_job_manifest(config: CapabilityConfig, settings: Settings, run_id: str, image: str, *,
+                      component: str, components: list[str]) -> dict:
+    """The Job that runs `component`'s test image.
+
+    Two different inputs, keyword-only so they cannot be swapped: `component` is the one whose
+    test image this is, and names the Job; `components` is EVERY touched component, and each of
+    them becomes a `<COMPONENT>_URL` on this Job — which is what lets a black-box test cross from
+    one component to another.
+    """
     return {
         "apiVersion": "batch/v1", "kind": "Job",
-        "metadata": {"name": config.prefixed(run_id, "test-job"), "namespace": run_id,
-                     "labels": _labels(run_id)},
+        "metadata": {"name": config.prefixed(run_id, config.test_job_name(component)),
+                     "namespace": run_id, "labels": _labels(run_id)},
         "spec": {
             "backoffLimit": 0,
             "template": {"spec": {
@@ -294,11 +348,12 @@ def parse_pytest_log(log: str) -> tuple[int, int, list[str]]:
     return counts["passed"], counts["passed"] + counts["failed"], failed_lines
 
 
-def run_test_job(config: CapabilityConfig, settings: Settings, run_id: str, image: str,
-                 components: list[str]) -> tuple[int, int, list[str], str]:
-    """`(passed, total, failed_lines, raw_log)` — the raw log is carried out so a passing run's
-    pull requests can show the evidence that earned the pass, not only the count."""
-    manifest = test_job_manifest(config, settings, run_id, image, components)
+def run_test_job(config: CapabilityConfig, settings: Settings, run_id: str, image: str, *,
+                 component: str, components: list[str]) -> ComponentRun:
+    """`component`'s result — its raw log carried out too, so a passing run's pull requests can
+    show the evidence that earned the pass, not only the count."""
+    manifest = test_job_manifest(config, settings, run_id, image, component=component,
+                                 components=components)
     job = manifest["metadata"]["name"]
     apply_manifest(settings, run_id, manifest)
 
@@ -315,7 +370,7 @@ def run_test_job(config: CapabilityConfig, settings: Settings, run_id: str, imag
 
     log = kubectl(settings, "-n", run_id, "logs", f"job/{job}")
     passed, total, failed = parse_pytest_log(log)
-    return passed, total, failed, log
+    return ComponentRun(component, passed, total, failed, log)
 
 
 # ── teardown ─────────────────────────────────────────────────────────────────────────────────
@@ -379,21 +434,24 @@ def deploy_and_test(config: CapabilityConfig, settings: Settings, *, task_id: st
                     deploy_component(config, settings, run_id, code_clone, component,
                                      code_images[component])
 
-            # One test image per component the testing actor published for. Each runs against
-            # every touched component's URL; a single-component task is the only shape exercised
-            # live so far, so the multi-image behaviour is unverified.
+            # One test image per component the testing actor published for, each in its own Job
+            # named for that component, each told every touched component's URL. Before 0.6.0
+            # they shared one Job name, and the second component's apply was refused as an
+            # immutable-field change — no two-component attempt ever ran (ADR-FTOA-0006).
+            # A red component does not stop the next: every component's result and log is kept.
             run = TestRun()
             for component, test_version in sorted(test_images.items()):
                 image = f"{image_repository(config, settings, component)}/tests:{test_version}"
                 with correlation.stage("run-test-job", component=component, image=image):
-                    passed, total, failed, log = run_test_job(config, settings, run_id, image,
-                                                              components)
-                run.passed += passed
-                run.total += total
-                run.criteria.extend(failed)
-                run.logs[component] = log
-                correlation.event("component-tested", component=component, passed=passed,
-                                  total=total, failed=failed)
+                    result = run_test_job(config, settings, run_id, image, component=component,
+                                          components=components)
+                run.results.append(result)
+                # The log's tail rides along, bounded like every diagnostic: a red attempt opens
+                # no pull request, so this record is the only place its evidence survives the
+                # namespace. The tail, because pytest's failures and summary come last.
+                correlation.event("component-tested", component=component, passed=result.passed,
+                                  total=result.total, failed=result.failed,
+                                  log=result.log[-DIAGNOSTIC_CHARS:])
             return run
         finally:
             shutil.rmtree(code_clone, ignore_errors=True)
