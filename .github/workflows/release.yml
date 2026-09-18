@@ -5,7 +5,7 @@ on:
 
   # A REGISTRY ADDED AFTER A TAG WAS ALREADY CUT. The image job below publishes to two registries,
   # and the second one was not always there. Running this workflow by hand backfills the image for
-  # a version whose wheel is already on PyPI — without inventing a version number whose only
+  # a version whose wheel is already in the feed — without inventing a version number whose only
   # content is "the last release missed a registry".
   #
   # THE TAG IS AN INPUT, NOT THE REF THIS RUNS FROM. GitHub takes the workflow FILE from the ref it
@@ -20,29 +20,54 @@ on:
         description: "Existing tag to publish an image for, e.g. v0.1.0"
         required: true
 
-# PyPI Trusted Publishing (OIDC) — no token is stored anywhere. The one-time setup is a pending
-# publisher on pypi.org naming this repo and this workflow; after the first release it becomes a
-# normal publisher. See README.
+# Federated to Entra and then to the organization's Azure Artifacts feed — no token is stored
+# anywhere. GitHub mints a short-lived OIDC token per run, Entra trades it for an access token
+# because a federated credential matches this run's subject, and the feed accepts that as a
+# password good for an hour. There is no per-project setup: one identity covers every repository
+# in the organization, because the credential matches a pattern rather than a repository. It is
+# the azure-artifacts environment's v* tag rule that confines a release to a tag, since an
+# environment-scoped subject carries no ref. See README.
 permissions:
-  id-token: write   # PyPI Trusted Publishing
+  id-token: write   # federated to Entra, then to the feed
   contents: read
   packages: write   # the image, to this repo's own container registry
 
 jobs:
   publish:
-    # ONLY ON A TAG PUSH. A manual run exists to backfill an IMAGE (see `on:` above), and PyPI
+    # ONLY ON A TAG PUSH. A manual run exists to backfill an IMAGE (see `on:` above), and the feed
     # refuses a version it already holds — so re-uploading is not merely redundant, it fails, and
     # would take the image job down with it.
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
-    environment: pypi
+    environment: azure-artifacts
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
 
+      - uses: azure/login@v2
+        with:
+          # The publishing identity — a feed contributor.
+          client-id: ${{ vars.AZURE_ARTIFACTS_PUBLISH_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: mint a feed token
+        # Valid for an hour. 499b84ac-… is the Entra application id of Azure DevOps, the same
+        # constant in every tenant.
+        run: |
+          token=$(az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+          echo "::add-mask::$token"
+          {
+            echo "UV_INDEX_PAPEETE_USERNAME=dummy"
+            echo "UV_INDEX_PAPEETE_PASSWORD=$token"
+            echo "UV_PUBLISH_USERNAME=dummy"
+            echo "UV_PUBLISH_PASSWORD=$token"
+          } >> "$GITHUB_ENV"
+
       - name: build
         # No fetch step and no external token: the contract is committed here. A release depends
-        # on nothing but this checkout and PyPI.
+        # on nothing but this checkout and the feed.
         run: uv build
 
       - name: the wheel must carry its contract
@@ -69,19 +94,19 @@ jobs:
             exit 1
           fi
 
-      - name: publish to PyPI
-        run: uv publish --trusted-publishing always
+      - name: publish to the papeete feed
+        run: uv publish --index papeete
 
   # ── the image, from the same tag and the same checkout ────────────────────────────────────────
   #
   # TWO ARTIFACTS, ONE RELEASE (ADR-FIA-0005, ADR-FTOA-0001). A use pins an image; an embedder pins
   # a wheel; both are this package at this version. A tag that produced one and not the other leaves a consumer
   # unable to take the release at all — so this job builds the wheel again from the same checkout
-  # rather than installing the one just uploaded: the image must not depend on PyPI having already
+  # rather than installing the one just uploaded: the image must not depend on the feed having already
   # indexed it, and must not be able to pick up a different build of the same version.
   #
   # It runs AFTER the wheel is published, not beside it. A failed upload should not leave an image
-  # published for a version that does not exist on PyPI; the reverse — a wheel with the image still
+  # published for a version that does not exist in the feed; the reverse — a wheel with the image still
   # to come — is recoverable by re-running this job alone.
   image:
     needs: publish
@@ -99,6 +124,25 @@ jobs:
           ref: ${{ inputs.tag }}
 
       - uses: astral-sh/setup-uv@v5
+
+      - uses: azure/login@v2
+        with:
+          # The consuming identity: it may resolve and cache from the upstream, and may not publish.
+          client-id: ${{ vars.AZURE_ARTIFACTS_CONSUME_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: mint a feed token
+        # Valid for an hour. 499b84ac-… is the Entra application id of Azure DevOps, the same
+        # constant in every tenant.
+        run: |
+          token=$(az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+          echo "::add-mask::$token"
+          {
+            echo "UV_INDEX_PAPEETE_USERNAME=dummy"
+            echo "UV_INDEX_PAPEETE_PASSWORD=$token"
+          } >> "$GITHUB_ENV"
 
       - name: the version is the tag
         # The tag is what a consumer writes in a FROM line. A tag that disagrees with

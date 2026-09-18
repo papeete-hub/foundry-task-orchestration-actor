@@ -1,14 +1,21 @@
 name: ci
 on: [push, pull_request]
 
-# NO CREDENTIAL. Nothing here authenticates to anything: no peer actor, no cluster, no GitHub API,
-# no PyPI upload, no image push. Everything this pipeline asserts about THIS package, it asserts
+# The one thing this pipeline reaches that it does not carry is the organization's package feed,
+# and it gets in with a token minted per run — an OIDC token traded at Entra, good for an hour.
+#
+# NO STORED CREDENTIAL. Nothing here authenticates to anything: no peer actor, no cluster, no GitHub API,
+# no feed upload, no image push. Everything this pipeline asserts about THIS package, it asserts
 # from source and from artifacts it built itself — the wheel it just built, and an image built from
 # that wheel rather than from a published one.
 #
 # It does reach the network for inputs: public base images (python, the Kubernetes project's
-# kubectl image) and PyPI. That is fetching, not authenticating — no secret is available to this
-# workflow, so nothing it runs can reach a real capability's repositories or a real cluster.
+# kubectl image) and the feed. That is fetching, not authenticating — the only credential in reach is the
+# per-run feed token, so nothing it runs can reach a real capability's repositories or a real cluster.
+
+permissions:
+  id-token: write
+  contents: read
 
 jobs:
   build:
@@ -16,6 +23,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+
+      - uses: azure/login@v2
+        with:
+          # The consuming identity: it may resolve and cache from the upstream, and may not publish.
+          client-id: ${{ vars.AZURE_ARTIFACTS_CONSUME_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: mint a feed token
+        # Valid for an hour. 499b84ac-… is the Entra application id of Azure DevOps, the same
+        # constant in every tenant.
+        run: |
+          token=$(az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+          echo "::add-mask::$token"
+          {
+            echo "UV_INDEX_PAPEETE_USERNAME=dummy"
+            echo "UV_INDEX_PAPEETE_PASSWORD=$token"
+          } >> "$GITHUB_ENV"
 
       - name: the test suite
         # Includes round 0 against real loopback HTTP peers; Kubernetes and GitHub are replaced.
@@ -70,6 +96,25 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
+
+      - uses: azure/login@v2
+        with:
+          # The consuming identity: it may resolve and cache from the upstream, and may not publish.
+          client-id: ${{ vars.AZURE_ARTIFACTS_CONSUME_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          allow-no-subscriptions: true
+
+      - name: mint a feed token
+        # Valid for an hour. 499b84ac-… is the Entra application id of Azure DevOps, the same
+        # constant in every tenant.
+        run: |
+          token=$(az account get-access-token \
+            --resource 499b84ac-1321-427f-aa17-267ca6975798 --query accessToken -o tsv)
+          echo "::add-mask::$token"
+          {
+            echo "UV_INDEX_PAPEETE_USERNAME=dummy"
+            echo "UV_INDEX_PAPEETE_PASSWORD=$token"
+          } >> "$GITHUB_ENV"
 
       - name: build the wheel this image will carry
         run: uv build
