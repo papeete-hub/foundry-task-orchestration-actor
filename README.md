@@ -194,10 +194,10 @@ docstring: `{event: "step", step, phase, duration_ms}`, `{event: "event", step, 
 
 ## Releasing, and which registry to pin
 
-Identical to the implementation actor's (ADR-FIA-0006): a `v*` tag publishes the wheel to PyPI
+Identical to the implementation actor's (ADR-FIA-0006): a `v*` tag publishes the wheel to the feed
 (Trusted Publishing) and one image build to `ghcr.io/papeete-hub/foundry-task-orchestration-actor`
 and, when `vars.PRODUCT_IMAGE` names one, to a product's own registry. A manual run with a tag input
-backfills an image without touching PyPI or `latest`:
+backfills an image without touching the feed or `latest`:
 
 ```bash
 gh workflow run release.yml --ref main -f tag=v0.1.0

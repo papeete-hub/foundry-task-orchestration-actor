@@ -48,6 +48,14 @@ Homepage = "https://github.com/papeete-hub/foundry-task-orchestration-actor"
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 
+[[tool.uv.index]]
+# The organization's only index. `default = true` replaces PyPI rather than adding to it: an extra
+# index would leave two answers for a name, which is what dependency confusion needs.
+name = "papeete"
+url = "https://pkgs.dev.azure.com/papeete-consulting/_packaging/papeete-python/pypi/simple/"
+publish-url = "https://pkgs.dev.azure.com/papeete-consulting/_packaging/papeete-python/pypi/upload/"
+default = true
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
